@@ -1,0 +1,46 @@
+[package]
+name = "fpl-gfx"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+authors = ["Avery Wagar <ajmwagar@gmail.com>"]
+description = "A fast, high-quality, themeable 2D graphics layer for caller-owned wGPU targets"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ajmwagar/gfx"
+homepage = "https://github.com/ajmwagar/gfx"
+documentation = "https://docs.rs/fpl-gfx"
+readme = "README.md"
+keywords = ["wgpu", "graphics", "ui", "theming", "rendering"]
+categories = ["graphics", "rendering", "gui"]
+exclude = [".github/"]
+
+[dependencies]
+bytemuck = { version = "1.24", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+wgpu = { version = "27", features = ["wgsl"] }
+
+[dev-dependencies]
+criterion = "0.7"
+naga = { version = "27", features = ["wgsl-in"] }
+pollster = "0.4"
+serde_json = "1"
+
+[[bench]]
+name = "scene"
+harness = false
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
