@@ -110,6 +110,7 @@ pub struct Renderer {
     instance_buffer: wgpu::Buffer,
     instance_capacity: usize,
     staging: Vec<GpuPrimitive>,
+    prepared_instances: u32,
     stats: RendererStats,
 }
 
@@ -188,6 +189,7 @@ impl Renderer {
             instance_buffer,
             instance_capacity,
             staging: Vec::with_capacity(instance_capacity),
+            prepared_instances: 0,
             stats: RendererStats {
                 instance_capacity,
                 ..Default::default()
@@ -218,18 +220,56 @@ impl Renderer {
             encoder,
             target,
         } = context;
+        self.prepare(device, queue, viewport, theme, scene)?;
+        let load = options.clear.map_or(wgpu::LoadOp::Load, |color| {
+            wgpu::LoadOp::Clear(color.as_wgpu())
+        });
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("fpl-gfx primitives"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load,
+                    store: wgpu::StoreOp::Store,
+                },
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        self.draw(&mut pass);
+        drop(pass);
+        Ok(self.stats)
+    }
+
+    /// Validates and uploads one scene without opening a render pass.
+    ///
+    /// Compositors that already own a pass call this during their prepare phase,
+    /// followed by [`Self::draw`] from that pass. This avoids intermediate
+    /// textures and lets `fpl-gfx` participate in a larger render graph.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid viewport, theme, primitive, or a scene
+    /// too large for wGPU's instance address space.
+    pub fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        viewport: Viewport,
+        theme: &Theme,
+        scene: &Scene,
+    ) -> Result<RendererStats, RenderError> {
         if !viewport.valid() {
             return Err(RenderError::Viewport);
         }
         theme.validate()?;
-        if scene
-            .primitives()
-            .iter()
-            .copied()
-            .any(|primitive| !primitive.valid())
-        {
+        if !scene.validate() {
             return Err(RenderError::Primitive);
         }
+        self.prepared_instances = u32::try_from(scene.len()).map_err(|_| RenderError::SceneSize)?;
         self.ensure_capacity(device, scene.len());
         let uniform = FrameUniform {
             viewport: [
@@ -263,34 +303,6 @@ impl Renderer {
                 bytemuck::cast_slice(&self.staging),
             );
         }
-        let load = options.clear.map_or(wgpu::LoadOp::Load, |color| {
-            wgpu::LoadOp::Clear(color.as_wgpu())
-        });
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("fpl-gfx primitives"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: target,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load,
-                    store: wgpu::StoreOp::Store,
-                },
-                depth_slice: None,
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-        pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &self.bind_group, &[]);
-        pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
-        if !self.staging.is_empty() {
-            pass.draw(
-                0..6,
-                0..u32::try_from(self.staging.len()).map_err(|_| RenderError::SceneSize)?,
-            );
-        }
-        drop(pass);
         self.stats = RendererStats {
             primitives: self.staging.len(),
             draw_calls: u32::from(!self.staging.is_empty()),
@@ -298,6 +310,16 @@ impl Renderer {
             instance_capacity: self.instance_capacity,
         };
         Ok(self.stats)
+    }
+
+    /// Draws the scene most recently uploaded by [`Self::prepare`] into a pass.
+    pub fn draw<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.bind_group, &[]);
+        pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
+        if !self.staging.is_empty() {
+            pass.draw(0..6, 0..self.prepared_instances);
+        }
     }
 
     /// Returns statistics for the most recently encoded frame.

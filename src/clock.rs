@@ -33,7 +33,7 @@ impl AnalogClock {
             radius * 2.0,
         );
         scene.push(
-            Primitive::disc(face, ThemeRole::SurfaceRecessed).with_outline(ThemeRole::Outline, 2.5),
+            Primitive::disc(face, ThemeRole::Surface).with_outline(ThemeRole::TextMuted, 2.5),
         );
 
         for tick in 0_u8..60 {
