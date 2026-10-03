@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Validated retained vector-path commands.
 - Renderer-neutral IOSurface and DMA-BUF descriptor/lease contract.
 - GPU-free contract builds through `--no-default-features`.
+- Toolkit-independent orbit cameras, named CAD orientations, and pickable view-cube geometry.
+- Retained WGPU frame presentation for decoded and external textures.
+- WGS84/ECEF mesh primitives and a caller-targeted retained globe renderer.
 
 ## [0.1.0] - 2026-10-03
 

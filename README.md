@@ -3,7 +3,7 @@
 [![CI](https://github.com/ajmwagar/gfx/actions/workflows/ci.yml/badge.svg)](https://github.com/ajmwagar/gfx/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-`fpl-gfx` is a fast, high-quality, themeable 2D graphics layer for
+`fpl-gfx` is a fast, high-quality, themeable graphics layer for
 caller-owned [wGPU](https://wgpu.rs/) targets.
 
 It is designed for dense, animated interfaces—audio tools, instrumentation,
@@ -28,6 +28,9 @@ loop, application model, or GPU device.
 - Instanced rounded panels, discs, meters, knobs, and lamps.
 - Semantic themes serialized independently from application state.
 - Portable geometry and retained vector-path commands for layout producers.
+- Toolkit-independent orbit cameras and projected, pickable orientation cubes.
+- Retained aspect-fit presentation for decoded or externally imported frames.
+- WGS84/ECEF geometry and a retained raster-plus-points globe renderer.
 - Validated IOSurface/DMA-BUF descriptors with explicit lease lifetimes.
 - Rendering into a texture view supplied by a compositor or application.
 - Observable per-frame work statistics.
@@ -132,6 +135,9 @@ consumer:
   sharing geometry, path, and frame contracts from this crate.
 - Synesthesia can build mixers, tape machines, meters, and patch matrices.
 - Canvas can own the wGPU device, target textures, composition, and theme.
+  Its Transmog-facing model view now delegates orbit, orientation-cube, and
+  retained-frame work here; its Panopticon-facing globe is a thin domain and
+  palette adapter over the shared globe renderer.
 
 The default `wgpu` feature supplies the retained GPU renderer. Disable default
 features for lightweight geometry, theming, vector-path, and external-surface

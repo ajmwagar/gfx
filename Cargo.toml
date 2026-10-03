@@ -47,3 +47,7 @@ must_use_candidate = "allow"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+[[example]]
+name = "offscreen"
+required-features = ["wgpu"]
