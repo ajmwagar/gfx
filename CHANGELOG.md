@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Portable `Point`, `Size`, and `Rect` geometry.
+- Validated retained vector-path commands.
+- Renderer-neutral IOSurface and DMA-BUF descriptor/lease contract.
+- GPU-free contract builds through `--no-default-features`.
+
 ## [0.1.0] - 2026-10-03
 
 ### Added
@@ -20,4 +27,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 [Unreleased]: https://github.com/ajmwagar/gfx/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/ajmwagar/gfx/releases/tag/v0.1.0
-

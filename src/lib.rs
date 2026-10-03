@@ -10,16 +10,25 @@
 
 mod clock;
 mod color;
+mod geometry;
+mod path;
 #[cfg(feature = "wgpu")]
 mod renderer;
 mod scene;
+mod surface;
 mod theme;
 
 pub use clock::AnalogClock;
 pub use color::Color;
+pub use geometry::{Point, Rect, Size};
+pub use path::{PathCommand, PathError, VectorPath};
 #[cfg(feature = "wgpu")]
 pub use renderer::{
     RenderContext, RenderError, RenderOptions, Renderer, RendererConfig, RendererStats, Viewport,
 };
-pub use scene::{Primitive, PrimitiveKind, Rect, Scene};
+pub use scene::{Primitive, PrimitiveKind, Scene};
+pub use surface::{
+    NativeSurfaceHandle, PixelFormat, SurfaceDescriptor, SurfaceError, SurfaceLease,
+    SURFACE_DESCRIPTOR_VERSION,
+};
 pub use theme::{MaterialTheme, MotionTheme, ShapeTheme, Theme, ThemeError, ThemeRole};

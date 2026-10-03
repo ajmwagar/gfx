@@ -1,40 +1,7 @@
 #[cfg(feature = "wgpu")]
 use bytemuck::{Pod, Zeroable};
 
-use crate::ThemeRole;
-
-/// An axis-aligned rectangle in logical pixels.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct Rect {
-    /// Left edge.
-    pub x: f32,
-    /// Top edge.
-    pub y: f32,
-    /// Width.
-    pub width: f32,
-    /// Height.
-    pub height: f32,
-}
-
-impl Rect {
-    /// Constructs a rectangle.
-    pub const fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
-        Self {
-            x,
-            y,
-            width,
-            height,
-        }
-    }
-
-    pub(crate) fn valid(self) -> bool {
-        [self.x, self.y, self.width, self.height]
-            .into_iter()
-            .all(f32::is_finite)
-            && self.width > 0.0
-            && self.height > 0.0
-    }
-}
+use crate::{Rect, ThemeRole};
 
 /// GPU-rendered primitive kinds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -234,7 +201,7 @@ impl Primitive {
     }
 
     pub(crate) fn valid(self) -> bool {
-        self.rect.valid()
+        self.rect.is_valid()
             && [
                 self.radius,
                 self.outline_width,
@@ -374,6 +341,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "wgpu")]
     fn gpu_instances_are_fixed_and_values_are_bounded() {
         assert_eq!(std::mem::size_of::<GpuPrimitive>(), 64);
         let instance = Primitive::meter(Rect::new(0.0, 0.0, 8.0, 100.0), 2.0).gpu();

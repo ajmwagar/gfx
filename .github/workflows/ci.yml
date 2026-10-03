@@ -29,6 +29,8 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Check
         run: cargo check --all-targets
+      - name: Check portable contracts
+        run: cargo check --no-default-features
       - name: Test
         run: cargo test --all-targets
       - name: Clippy
@@ -38,4 +40,3 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --no-deps
-

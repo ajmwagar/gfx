@@ -27,6 +27,8 @@ loop, application model, or GPU device.
 - Reusable CPU scenes with stable allocations.
 - Instanced rounded panels, discs, meters, knobs, and lamps.
 - Semantic themes serialized independently from application state.
+- Portable geometry and retained vector-path commands for layout producers.
+- Validated IOSurface/DMA-BUF descriptors with explicit lease lifetimes.
 - Rendering into a texture view supplied by a compositor or application.
 - Observable per-frame work statistics.
 
@@ -126,16 +128,20 @@ cargo bench --bench scene
 `fpl-gfx` is the common rendering layer. Higher-level controls remain with the
 consumer:
 
-- PedalKernel can build plugin controls and import native editor surfaces.
+- PedalKernel builds plugin controls and captures native editor surfaces while
+  sharing geometry, path, and frame contracts from this crate.
 - Synesthesia can build mixers, tape machines, meters, and patch matrices.
 - Canvas can own the wGPU device, target textures, composition, and theme.
+
+The default `wgpu` feature supplies the retained GPU renderer. Disable default
+features for lightweight geometry, theming, vector-path, and external-surface
+contracts in processes that do not own a GPU device.
 
 ## Status
 
 The API is intentionally small and pre-1.0. The initial contract establishes
 resource ownership, batching, theme semantics, and portable GPU limits before
-adding text atlases, vector-path tessellation, clipping, images, and richer
-materials.
+adding text atlases, vector-path tessellation, clipping, and richer materials.
 
 ## License
 
