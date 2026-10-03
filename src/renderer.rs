@@ -313,7 +313,7 @@ impl Renderer {
     }
 
     /// Draws the scene most recently uploaded by [`Self::prepare`] into a pass.
-    pub fn draw<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
+    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>) {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
