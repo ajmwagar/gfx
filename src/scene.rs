@@ -132,7 +132,7 @@ impl Primitive {
         let dy = end[1] - start[1];
         let length = dx.hypot(dy);
         let extent = length + width;
-        let center = [(start[0] + end[0]) * 0.5, (start[1] + end[1]) * 0.5];
+        let center = [start[0].midpoint(end[0]), start[1].midpoint(end[1])];
         let mut primitive = Self::base(
             Rect::new(
                 center[0] - extent * 0.5,

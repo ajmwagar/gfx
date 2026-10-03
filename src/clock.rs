@@ -36,8 +36,8 @@ impl AnalogClock {
             Primitive::disc(face, ThemeRole::SurfaceRecessed).with_outline(ThemeRole::Outline, 2.5),
         );
 
-        for tick in 0..60 {
-            let angle = tick as f32 * TAU / 60.0 - FRAC_PI_2;
+        for tick in 0_u8..60 {
+            let angle = f32::from(tick) * TAU / 60.0 - FRAC_PI_2;
             let major = tick % 5 == 0;
             let inner_scale = if major { 0.76 } else { 0.84 };
             scene.push(Primitive::line(
@@ -48,8 +48,8 @@ impl AnalogClock {
             ));
         }
 
-        let minute = self.minute as f32 + self.second / 60.0;
-        let hour = (self.hour % 12) as f32 + minute / 60.0;
+        let minute = f32::from(self.minute) + self.second / 60.0;
+        let hour = f32::from(self.hour % 12) + minute / 60.0;
         for (fraction, divisions, length, width, role) in [
             (hour, 12.0, 0.48, 4.5, ThemeRole::Text),
             (minute, 60.0, 0.69, 3.0, ThemeRole::Text),
@@ -99,12 +99,12 @@ mod tests {
     fn clock_reuses_retained_scene_capacity() {
         let mut scene = Scene::with_capacity(65);
         let capacity = scene.capacity();
-        for second in 0..60 {
+        for second in 0_u8..60 {
             scene.clear();
             AnalogClock {
                 hour: 3,
                 minute: 14,
-                second: second as f32,
+                second: f32::from(second),
             }
             .append(&mut scene, Rect::new(0.0, 0.0, 320.0, 320.0));
             assert_eq!(scene.capacity(), capacity);
