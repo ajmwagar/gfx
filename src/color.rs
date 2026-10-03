@@ -47,6 +47,7 @@ impl Color {
             .all(|component| component.is_finite() && (0.0..=1.0).contains(&component))
     }
 
+    #[cfg(feature = "wgpu")]
     pub(crate) fn as_wgpu(self) -> wgpu::Color {
         wgpu::Color {
             r: f64::from(self.r),

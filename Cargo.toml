@@ -18,7 +18,11 @@ exclude = [".github/"]
 bytemuck = { version = "1.24", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
-wgpu = { version = "27", features = ["wgsl"] }
+wgpu = { version = "27", features = ["wgsl"], optional = true }
+
+[features]
+default = ["wgpu"]
+wgpu = ["dep:wgpu"]
 
 [dev-dependencies]
 criterion = "0.7"
@@ -43,4 +47,3 @@ must_use_candidate = "allow"
 [profile.release]
 lto = "thin"
 codegen-units = 1
-

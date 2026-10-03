@@ -92,7 +92,7 @@ mod tests {
         .append(&mut scene, Rect::new(0.0, 0.0, 400.0, 300.0));
 
         assert_eq!(scene.len(), 65);
-        assert!(scene.primitives().iter().copied().all(Primitive::valid));
+        assert!(scene.validate());
     }
 
     #[test]

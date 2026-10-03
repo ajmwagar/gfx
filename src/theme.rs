@@ -190,6 +190,7 @@ impl Theme {
         Ok(())
     }
 
+    #[cfg(feature = "wgpu")]
     pub(crate) fn gpu_colors(&self) -> [[f32; 4]; THEME_ROLE_COUNT] {
         self.colors.map(Color::to_array)
     }

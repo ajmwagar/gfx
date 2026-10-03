@@ -1,3 +1,4 @@
+#[cfg(feature = "wgpu")]
 use bytemuck::{Pod, Zeroable};
 
 use crate::ThemeRole;
@@ -254,6 +255,7 @@ impl Primitive {
             && (!matches!(self.kind, PrimitiveKind::Arc) || self.radius > 0.0)
     }
 
+    #[cfg(feature = "wgpu")]
     pub(crate) fn gpu(self) -> GpuPrimitive {
         let value = match self.kind {
             PrimitiveKind::Line | PrimitiveKind::Arc => self.value,
@@ -321,11 +323,19 @@ impl Scene {
         self.primitives.capacity()
     }
 
+    /// Validates every primitive before a scene crosses a process or renderer
+    /// boundary. GPU hosts also perform this check during submission.
+    pub fn validate(&self) -> bool {
+        self.primitives.iter().copied().all(Primitive::valid)
+    }
+
+    #[cfg(feature = "wgpu")]
     pub(crate) fn primitives(&self) -> &[Primitive] {
         &self.primitives
     }
 }
 
+#[cfg(feature = "wgpu")]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub(crate) struct GpuPrimitive {
@@ -335,6 +345,7 @@ pub(crate) struct GpuPrimitive {
     pub material: [f32; 4],
 }
 
+#[cfg(feature = "wgpu")]
 impl GpuPrimitive {
     pub const ATTRIBUTES: [wgpu::VertexAttribute; 4] =
         wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Uint32x4, 3 => Float32x4];

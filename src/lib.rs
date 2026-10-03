@@ -10,12 +10,14 @@
 
 mod clock;
 mod color;
+#[cfg(feature = "wgpu")]
 mod renderer;
 mod scene;
 mod theme;
 
 pub use clock::AnalogClock;
 pub use color::Color;
+#[cfg(feature = "wgpu")]
 pub use renderer::{
     RenderContext, RenderError, RenderOptions, Renderer, RendererConfig, RendererStats, Viewport,
 };
