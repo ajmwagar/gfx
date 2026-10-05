@@ -290,6 +290,12 @@ impl Scene {
         self.primitives.capacity()
     }
 
+    /// Borrows primitives in painter order without exposing mutable storage.
+    /// Useful for diagnostics, filtering, and composing a subset into a scene.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &Primitive> {
+        self.primitives.iter()
+    }
+
     /// Validates every primitive before a scene crosses a process or renderer
     /// boundary. GPU hosts also perform this check during submission.
     pub fn validate(&self) -> bool {
