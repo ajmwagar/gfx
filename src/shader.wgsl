@@ -115,7 +115,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let grain = max(input.material.y, frame.material.y);
     let top_light = saturate(0.5 - point.y / max(input.size.y, 1.0));
     var color = fill;
-    color = vec4(color.rgb * (0.86 + gloss * top_light * 0.30), color.a);
+    // Flat means the authored color, not an implicit 14% lighting penalty.
+    // Preserve the established material response whenever gloss is enabled.
+    if gloss > 0.0 {
+        color = vec4(color.rgb * (0.86 + gloss * top_light * 0.30), color.a);
+    }
     color = vec4(
         color.rgb + (hash21(floor(input.screen * frame.viewport.z)) - 0.5) * grain,
         color.a,

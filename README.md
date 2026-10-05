@@ -38,6 +38,30 @@ loop, application model, or GPU device.
 It deliberately does **not** own windows, input, layout policy, audio/MIDI,
 business state, or application lifecycle.
 
+## Coherence design language
+
+Coherence owns the optional native adapter in
+[`coherence-native`](https://github.com/FuturePresentLabs/coherence/tree/master/crates/coherence-native).
+Use its `gfx` feature to map canonical Coherence colors and shapes into this
+crate's existing `Theme`; egui clients can enable the companion `egui` feature
+and share the same resolved token snapshot. Neither gfx nor independent apps
+need a Canvas dependency.
+
+```rust,ignore
+let tokens = coherence_native::Tokens::new(
+    coherence_native::Mode::Dark,
+    coherence_native::Density::Compact,
+);
+coherence_native::gfx::apply(&tokens, &mut host_theme)?;
+```
+
+Pin a reviewed Coherence Git revision. Apply on appearance changes, not per
+frame. The adapter performs the sRGB-to-linear conversion and rejects invalid
+geometry before mutation. Coherence's flat profile replaces materials/colors;
+host-owned motion and outline width remain unchanged. Hosts read the same token
+metrics for typography and spacing. `Theme::studio_dark()` remains a standalone
+gfx fallback, not a second implementation of Coherence.
+
 ## Example
 
 ```rust,no_run
@@ -108,6 +132,11 @@ allowing each application to retain its own state and domain components.
 
 Theme colors are linear RGBA. `Color::from_srgb8` converts authored sRGB colors
 correctly for an sRGB render target.
+
+Zero-gloss, zero-grain flat fills preserve their authored color exactly; there
+is no implicit material darkening. Explicit primitive or theme gloss retains
+the established directional lighting response. The GPU regression can be run
+on a render host with `cargo test --test flat_material -- --ignored`.
 
 ## Performance contract
 
