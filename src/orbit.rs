@@ -385,7 +385,11 @@ mod tests {
         large.press(Point::new(0.0, 0.0));
         assert!(large.drag(Point::new(1_920.0, 1_080.0), Size::new(1_920.0, 1_080.0),));
         assert_eq!(small.pose(), large.pose());
-        assert_eq!(small.pose().pitch_degrees, MAX_ORBIT_PITCH_DEGREES);
+        // Clamping must return the exact published limit.
+        assert_eq!(
+            small.pose().pitch_degrees.to_bits(),
+            MAX_ORBIT_PITCH_DEGREES.to_bits()
+        );
     }
 
     #[test]

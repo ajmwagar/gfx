@@ -345,6 +345,7 @@ mod tests {
     fn gpu_instances_are_fixed_and_values_are_bounded() {
         assert_eq!(std::mem::size_of::<GpuPrimitive>(), 64);
         let instance = Primitive::meter(Rect::new(0.0, 0.0, 8.0, 100.0), 2.0).gpu();
-        assert_eq!(instance.shape[2], 1.0);
+        // GPU saturation is exact, not a tolerance-based approximation.
+        assert_eq!(instance.shape[2].to_bits(), 1.0_f32.to_bits());
     }
 }

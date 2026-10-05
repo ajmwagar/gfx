@@ -467,8 +467,9 @@ mod tests {
                 )
             })
             .collect::<Vec<_>>();
-        assert_eq!(values[0], 0.0);
-        assert_eq!(*values.last().unwrap(), 1.0);
+        // Endpoints are exact contract values, not approximate measurements.
+        assert_eq!(values[0].to_bits(), 0.0_f32.to_bits());
+        assert_eq!(values.last().unwrap().to_bits(), 1.0_f32.to_bits());
         assert!(values.windows(2).all(|pair| pair[1] >= pair[0]));
     }
 
