@@ -271,6 +271,11 @@ pub struct PianoViewport {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "view", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SignalFrame {
+    /// Read-only channel strips with caller-owned peak levels and gain references.
+    Console {
+        /// Bounded strips, configured meter face and calibration.
+        panel: crate::console::Console,
+    },
     /// A bounded directed signal-flow graph; no device ownership lives here.
     Topology {
         /// Nodes, directed cables and caller-owned observation states.
@@ -323,6 +328,7 @@ impl SignalFrame {
     /// Rejects invalid topology data or geometry.
     pub fn labels(&self, bounds: Rect) -> Result<Vec<crate::topology::Label>, ViewError> {
         match self {
+            Self::Console { panel } => panel.labels(bounds),
             Self::Topology { graph } => graph.labels(bounds).map_err(|_| ViewError),
             _ => Ok(vec![]),
         }
@@ -333,6 +339,7 @@ impl SignalFrame {
     /// Returns `ViewError` for invalid payloads or view geometry.
     pub fn append(&self, scene: &mut Scene, bounds: Rect) -> Result<(), ViewError> {
         match self {
+            Self::Console { panel } => panel.append(scene, bounds),
             Self::Topology { graph } => graph.append(scene, bounds).map_err(|_| ViewError),
             Self::Waveform { range, peaks } => {
                 waveform(scene, bounds, *range, peaks, ThemeRole::Secondary)
@@ -518,25 +525,29 @@ mod tests {
     #[test]
     fn validation_is_atomic() {
         let mut scene = Scene::new();
-        assert!(scope(
-            &mut scene,
-            bounds(),
-            range(),
-            &[0.0, f32::NAN],
-            ThemeRole::Primary
-        )
-        .is_err());
-        assert!(waveform(
-            &mut scene,
-            bounds(),
-            range(),
-            &[Envelope {
-                minimum: 1.0,
-                maximum: -1.0
-            }],
-            ThemeRole::Primary
-        )
-        .is_err());
+        assert!(
+            scope(
+                &mut scene,
+                bounds(),
+                range(),
+                &[0.0, f32::NAN],
+                ThemeRole::Primary
+            )
+            .is_err()
+        );
+        assert!(
+            waveform(
+                &mut scene,
+                bounds(),
+                range(),
+                &[Envelope {
+                    minimum: 1.0,
+                    maximum: -1.0
+                }],
+                ThemeRole::Primary
+            )
+            .is_err()
+        );
         assert!(scene.is_empty());
     }
     #[test]
@@ -570,14 +581,16 @@ mod tests {
         .unwrap();
         assert_eq!(scene.len(), MAX_ITEMS);
         assert!(scene.validate());
-        assert!(scope(
-            &mut scene,
-            bounds(),
-            range(),
-            &vec![0.0; MAX_ITEMS + 1],
-            ThemeRole::Primary
-        )
-        .is_err());
+        assert!(
+            scope(
+                &mut scene,
+                bounds(),
+                range(),
+                &vec![0.0; MAX_ITEMS + 1],
+                ThemeRole::Primary
+            )
+            .is_err()
+        );
     }
     #[test]
     fn piano_clips_notes_and_shares_hit_geometry() {
@@ -634,19 +647,21 @@ mod tests {
         .unwrap();
         assert!(scene.validate());
         let len = scene.len();
-        assert!(spectrum(
-            &mut scene,
-            bounds(),
-            hz,
-            db,
-            &[SpectrumBand {
-                low_hz: 0.0,
-                high_hz: 1.0,
-                db: 0.0
-            }],
-            ThemeRole::Primary
-        )
-        .is_err());
+        assert!(
+            spectrum(
+                &mut scene,
+                bounds(),
+                hz,
+                db,
+                &[SpectrumBand {
+                    low_hz: 0.0,
+                    high_hz: 1.0,
+                    db: 0.0
+                }],
+                ThemeRole::Primary
+            )
+            .is_err()
+        );
         assert_eq!(scene.len(), len);
     }
 
