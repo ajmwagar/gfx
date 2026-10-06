@@ -173,14 +173,18 @@ impl Console {
         let cells = self.cells(b)?;
         for (strip, cell) in self.strips.iter().zip(cells) {
             let card = Rect::new(
-                cell.x + cell.width * 0.02,
+                cell.x + cell.width * if self.columns { 0.0 } else { 0.02 },
                 cell.y + cell.height * 0.03,
-                cell.width * 0.96,
+                cell.width * if self.columns { 1.0 } else { 0.96 },
                 cell.height * 0.94,
             );
             scene.push(Primitive::rounded_rect(
                 card,
-                6.0_f32.min(card.height * 0.08),
+                if self.columns {
+                    0.0
+                } else {
+                    6.0_f32.min(card.height * 0.08)
+                },
                 ThemeRole::SurfaceRaised,
             ));
             scene.push(Primitive::rounded_rect(
@@ -191,13 +195,13 @@ impl Console {
             if strip.show_meter && strip.peak_dbfs.is_some() {
                 let face = Rect::new(
                     card.x + card.width * 0.07,
-                    card.y + card.height * 0.27,
-                    card.width * 0.86,
-                    card.height * 0.48,
+                    card.y + card.height * if self.columns { 0.27 } else { 0.52 },
+                    card.width * if self.columns { 0.86 } else { 0.60 },
+                    card.height * if self.columns { 0.48 } else { 0.18 },
                 );
                 meter(scene, face, &self.meter, strip.peak_dbfs);
             }
-            if let Some(gain) = strip.gain_db {
+            if let Some(gain) = strip.gain_db.filter(|_| self.columns) {
                 if self.columns {
                     let x = card.x + card.width * 0.88;
                     let top = card.y + card.height * 0.33;
@@ -252,15 +256,30 @@ impl Console {
                 ),
                 role,
             };
-            labels.push(label(strip.name.clone(), 0.07, 0.13, ThemeRole::Text));
+            labels.push(label(
+                strip.name.clone(),
+                0.07,
+                if self.columns { 0.13 } else { 0.27 },
+                ThemeRole::Text,
+            ));
             labels.push(label(
                 strip.detail.clone(),
-                0.21,
-                0.10,
+                if self.columns { 0.21 } else { 0.35 },
+                if self.columns { 0.10 } else { 0.18 },
                 ThemeRole::TextMuted,
             ));
             if let Some(db) = strip.peak_dbfs.filter(|_| strip.show_meter) {
-                labels.push(label(format!("{db:.1} dBFS"), 0.77, 0.10, ThemeRole::Text));
+                let mut reading = label(
+                    format!("{db:.1} dBFS"),
+                    if self.columns { 0.77 } else { 0.55 },
+                    if self.columns { 0.10 } else { 0.18 },
+                    ThemeRole::Text,
+                );
+                if !self.columns {
+                    reading.bounds.x = cell.x + cell.width * 0.70;
+                    reading.bounds.width = cell.width * 0.24;
+                }
+                labels.push(reading);
                 if self.meter.style == MeterStyle::Needle {
                     for (x, value) in [
                         (0.12, self.meter.minimum_db),
@@ -282,18 +301,18 @@ impl Console {
             } else if strip.show_meter {
                 labels.push(label(
                     "Level unavailable".into(),
-                    0.49,
-                    0.11,
+                    if self.columns { 0.49 } else { 0.55 },
+                    if self.columns { 0.11 } else { 0.18 },
                     ThemeRole::TextMuted,
                 ));
             }
             labels.push(label(
                 match strip.gain_db {
-                    Some(gain) => format!("{} · gain {gain:+0.1} dB", strip.state.label()),
-                    None => strip.state.label().into(),
+                    Some(gain) => format!("{gain:+0.1} dB"),
+                    None => String::new(),
                 },
-                0.90,
-                0.08,
+                if self.columns { 0.90 } else { 0.79 },
+                if self.columns { 0.10 } else { 0.18 },
                 strip.state.role(),
             ));
         }
@@ -434,6 +453,19 @@ mod tests {
                     .any(|l| l.text.contains("dBFS"))
             );
         }
+    }
+    #[test]
+    fn compact_rows_prioritize_readable_names_and_gain() {
+        let mut p = panel(MeterStyle::Led);
+        p.columns = false;
+        let labels = p.labels(Rect::new(0.0, 0.0, 400.0, 80.0)).unwrap();
+        assert!(labels[0].bounds.height >= 20.0);
+        assert!(labels.iter().any(|l| l.text == "-6.0 dB"));
+        assert!(!labels.iter().any(|l| l.text.contains("gain")));
+        let mut scene = Scene::new();
+        p.append(&mut scene, Rect::new(0.0, 0.0, 400.0, 80.0))
+            .unwrap();
+        assert!(scene.validate());
     }
     #[test]
     fn nan_is_atomic_and_missing_is_not_silence() {
