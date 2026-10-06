@@ -5,6 +5,7 @@
 //! No audio callback, window, network client or DSP dependency lives here.
 
 use crate::{Point, Primitive, Rect, Scene, ThemeRole};
+use serde::{Deserialize, Serialize};
 
 /// Maximum columns or notes accepted by one view.
 pub const MAX_ITEMS: usize = 4096;
@@ -15,7 +16,8 @@ pub const MAX_ITEMS: usize = 4096;
 pub struct ViewError;
 
 /// One min/max envelope column, in caller-selected signal units.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Envelope {
     /// Lowest observed value.
     pub minimum: f32,
@@ -24,7 +26,8 @@ pub struct Envelope {
 }
 
 /// Linear vertical scale; use volts, normalized audio, automation units or dB.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ValueRange {
     /// Bottom of the display.
     pub minimum: f32,
@@ -167,7 +170,8 @@ pub fn scope(
 }
 
 /// One precomputed spectral display band. FFT normalization remains caller-owned.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SpectrumBand {
     /// Lower band edge in Hz, strictly positive for the logarithmic axis.
     pub low_hz: f32,
@@ -232,7 +236,8 @@ pub fn spectrum(
 }
 
 /// Caller-owned recorded or currently held note. Times use one consistent unit.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Note {
     /// Start in beats or seconds, matching the viewport.
     pub start: f64,
@@ -259,6 +264,98 @@ pub struct PianoViewport {
     pub low_key: u8,
     /// Highest visible key, inclusive.
     pub high_key: u8,
+}
+
+/// Renderer-neutral, bounded snapshot payload. Units/provenance/freshness belong
+/// to the surrounding application contract, not to the renderer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "view", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SignalFrame {
+    /// Min/max peak envelope in explicit value units.
+    Waveform {
+        /// Explicit vertical signal-unit scale.
+        range: ValueRange,
+        /// Peak-preserving visible columns.
+        peaks: Vec<Envelope>,
+    },
+    /// Uniformly spaced time-domain or automation samples.
+    Scope {
+        /// Explicit vertical signal-unit scale.
+        range: ValueRange,
+        /// Uniformly spaced visible samples.
+        samples: Vec<f32>,
+    },
+    /// Precomputed dB spectral bands, never raw FFT work.
+    Spectrum {
+        /// Positive frequency bounds in Hz.
+        hz: ValueRange,
+        /// Vertical amplitude scale in the caller's dB convention.
+        db: ValueRange,
+        /// Sorted, nonoverlapping spectral bands.
+        bands: Vec<SpectrumBand>,
+    },
+    /// Note intervals in a caller-defined common timebase.
+    PianoRoll {
+        /// Left edge in the caller's timeline units.
+        start: f64,
+        /// Right edge in the same units.
+        end: f64,
+        /// Lowest visible MIDI key, inclusive.
+        low_key: u8,
+        /// Highest visible MIDI key, inclusive.
+        high_key: u8,
+        /// Recorded or held note intervals.
+        notes: Vec<Note>,
+        /// Optional cursor in the common timeline units.
+        playhead: Option<f64>,
+    },
+}
+
+impl SignalFrame {
+    /// Append to caller-owned scene; parsing alone does not imply validation.
+    ///
+    /// # Errors
+    /// Returns `ViewError` for invalid payloads or view geometry.
+    pub fn append(&self, scene: &mut Scene, bounds: Rect) -> Result<(), ViewError> {
+        match self {
+            Self::Waveform { range, peaks } => {
+                waveform(scene, bounds, *range, peaks, ThemeRole::Secondary)
+            }
+            Self::Scope { range, samples } => {
+                scope(scene, bounds, *range, samples, ThemeRole::Success)
+            }
+            Self::Spectrum { hz, db, bands } => {
+                spectrum(scene, bounds, *hz, *db, bands, ThemeRole::Primary)
+            }
+            Self::PianoRoll {
+                start,
+                end,
+                low_key,
+                high_key,
+                notes,
+                playhead,
+            } => piano_roll(
+                scene,
+                PianoViewport {
+                    bounds,
+                    start: *start,
+                    end: *end,
+                    low_key: *low_key,
+                    high_key: *high_key,
+                },
+                notes,
+                *playhead,
+            ),
+        }
+    }
+
+    /// Validate a snapshot independently of its eventual host placement.
+    ///
+    /// # Errors
+    /// Returns `ViewError` for an invalid or oversized payload.
+    pub fn validate(&self) -> Result<(), ViewError> {
+        self.append(&mut Scene::new(), Rect::new(0.0, 0.0, 1024.0, 512.0))
+    }
 }
 
 impl PianoViewport {
