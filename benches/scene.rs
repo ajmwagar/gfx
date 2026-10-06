@@ -24,5 +24,34 @@ fn build_dense_scene(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, build_dense_scene);
+fn signal_views(c: &mut Criterion) {
+    use fpl_gfx::{
+        signals::{self, Envelope, ValueRange},
+        ThemeRole,
+    };
+    let peaks = [Envelope {
+        minimum: -0.8,
+        maximum: 0.8,
+    }; 1024];
+    c.bench_function("waveform 1024 peak columns retained capacity", |bench| {
+        let mut scene = Scene::with_capacity(1026);
+        bench.iter(|| {
+            scene.clear();
+            signals::waveform(
+                &mut scene,
+                Rect::new(0.0, 0.0, 1024.0, 200.0),
+                ValueRange {
+                    minimum: -1.0,
+                    maximum: 1.0,
+                },
+                black_box(&peaks),
+                ThemeRole::Primary,
+            )
+            .unwrap();
+            black_box(&scene);
+        });
+    });
+}
+
+criterion_group!(benches, build_dense_scene, signal_views);
 criterion_main!(benches);

@@ -10,6 +10,7 @@
 
 mod clock;
 mod color;
+pub mod signals;
 #[cfg(feature = "wgpu")]
 mod frame;
 mod geometry;

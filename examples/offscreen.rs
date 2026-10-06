@@ -5,6 +5,9 @@ use fpl_gfx::{
     Viewport,
 };
 
+#[path = "support/signal_gallery.rs"]
+mod signal_gallery;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     pollster::block_on(run())
 }
@@ -37,7 +40,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
     let target = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -59,6 +62,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         ThemeRole::Success,
     ));
 
+    let signals = std::env::args().any(|arg| arg == "--signals");
+    let mut theme = Theme::default();
+    if signals {
+        theme.materials.grain = 0.0;
+        theme.materials.gloss = 0.0;
+        scene.clear();
+        signal_gallery::append(&mut scene)?;
+    }
+
     let mut renderer = Renderer::new(&device, RendererConfig::new(format));
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("fpl-gfx example encoder"),
@@ -71,13 +83,61 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             target: &target,
         },
         Viewport::new(640.0, 360.0),
-        &Theme::default(),
+        &theme,
         &scene,
         RenderOptions {
             clear: Some(Color::linear(0.0, 0.0, 0.0, 1.0)),
         },
     )?;
+    let output = std::env::args()
+        .collect::<Vec<_>>()
+        .windows(2)
+        .find(|pair| pair[0] == "--output")
+        .map(|pair| pair[1].clone());
+    let readback = output.as_ref().map(|_| {
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("example image readback"),
+            size: 640 * 360 * 4,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        encoder.copy_texture_to_buffer(
+            texture.as_image_copy(),
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(640 * 4),
+                    rows_per_image: Some(360),
+                },
+            },
+            wgpu::Extent3d {
+                width: 640,
+                height: 360,
+                depth_or_array_layers: 1,
+            },
+        );
+        buffer
+    });
     queue.submit(Some(encoder.finish()));
+    if let (Some(path), Some(buffer)) = (output, readback) {
+        use std::io::Write;
+        let (send, receive) = std::sync::mpsc::channel();
+        buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                let _ = send.send(result);
+            });
+        device.poll(wgpu::PollType::wait_indefinitely())?;
+        receive.recv()??;
+        let bytes = buffer.slice(..).get_mapped_range();
+        let mut file = std::io::BufWriter::new(std::fs::File::create_new(path)?);
+        file.write_all(b"P6\n640 360\n255\n")?;
+        for pixel in bytes.chunks_exact(4) {
+            file.write_all(&pixel[..3])?;
+        }
+        file.flush()?;
+    }
     println!(
         "rendered {} primitives in {} draw call",
         stats.primitives, stats.draw_calls

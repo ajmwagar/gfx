@@ -34,6 +34,8 @@ loop, application model, or GPU device.
 - Validated IOSurface/DMA-BUF descriptors with explicit lease lifetimes.
 - Rendering into a texture view supplied by a compositor or application.
 - Observable per-frame work statistics.
+- Rendering-only [DAW signal views](docs/signal-views.md): piano roll/live notes,
+  peak waveforms, scope/automation/LFO traces and log-frequency spectra.
 
 It deliberately does **not** own windows, input, layout policy, audio/MIDI,
 business state, or application lifecycle.
