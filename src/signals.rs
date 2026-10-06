@@ -271,6 +271,11 @@ pub struct PianoViewport {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "view", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SignalFrame {
+    /// A bounded directed signal-flow graph; no device ownership lives here.
+    Topology {
+        /// Nodes, directed cables and caller-owned observation states.
+        graph: crate::topology::Graph,
+    },
     /// Min/max peak envelope in explicit value units.
     Waveform {
         /// Explicit vertical signal-unit scale.
@@ -312,12 +317,23 @@ pub enum SignalFrame {
 }
 
 impl SignalFrame {
+    /// Shared label placement for hosts with their own glyph renderer.
+    ///
+    /// # Errors
+    /// Rejects invalid topology data or geometry.
+    pub fn labels(&self, bounds: Rect) -> Result<Vec<crate::topology::Label>, ViewError> {
+        match self {
+            Self::Topology { graph } => graph.labels(bounds).map_err(|_| ViewError),
+            _ => Ok(vec![]),
+        }
+    }
     /// Append to caller-owned scene; parsing alone does not imply validation.
     ///
     /// # Errors
     /// Returns `ViewError` for invalid payloads or view geometry.
     pub fn append(&self, scene: &mut Scene, bounds: Rect) -> Result<(), ViewError> {
         match self {
+            Self::Topology { graph } => graph.append(scene, bounds).map_err(|_| ViewError),
             Self::Waveform { range, peaks } => {
                 waveform(scene, bounds, *range, peaks, ThemeRole::Secondary)
             }
