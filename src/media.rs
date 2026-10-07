@@ -3,6 +3,140 @@ use crate::{Color, Point, Primitive, Rect, Scene, ThemeRole};
 
 /// Bounded maximum cards in a single shelf viewport.
 pub const MAX_CARDS: usize = 24;
+/// Separation between a shelf and its selected-record detail panel.
+pub const DETAIL_GAP:f32=24.0;
+
+/// One record-crate slot. Labels and cover textures remain host-owned.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RecordCard {
+    /// Selection/hit-test bounds, including space for a partially withdrawn disc.
+    pub bounds: Rect,
+    /// Square paper sleeve placement.
+    pub sleeve: Rect,
+    /// Disc placement, behind the sleeve.
+    pub record: Rect,
+}
+
+/// Full-width, bounded crate grid shared by flat and spatial hosts.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordCrate {
+    /// Visible slots in catalog order.
+    pub cards: Vec<RecordCard>,
+    /// Column count for deterministic remote navigation.
+    pub columns: usize,
+    /// Maximum slots that fit this viewport; hosts page using this value.
+    pub capacity: usize,
+}
+
+impl RecordCrate {
+    /// Derive square sleeves and reserved disc space; never fabricate overflow rows.
+    pub fn layout(bounds: Rect, requested: usize) -> Option<Self> {
+        if !bounds.x.is_finite()
+            || !bounds.y.is_finite()
+            || !bounds.width.is_finite()
+            || !bounds.height.is_finite()
+            || !bounds.right().is_finite()
+            || !bounds.bottom().is_finite()
+            || !(320.0..=16_384.0).contains(&bounds.width)
+            || !(260.0..=16_384.0).contains(&bounds.height)
+            || requested > MAX_CARDS
+        {
+            return None;
+        }
+        let gap = 28.0;
+        let columns = ((bounds.width + gap) / 240.0).floor().max(1.0) as usize;
+        let width = (bounds.width - gap * (columns - 1) as f32) / columns as f32;
+        let sleeve = (width * 0.68).min(210.0);
+        let height = sleeve + 76.0;
+        let rows = ((bounds.height + gap) / (height + gap)).floor() as usize;
+        let capacity = (rows * columns).min(MAX_CARDS);
+        if capacity == 0 {
+            return None;
+        }
+        let cards = (0..requested.min(capacity))
+            .map(|index| {
+                let x = bounds.x + (index % columns) as f32 * (width + gap);
+                let y = bounds.y + (index / columns) as f32 * (height + gap);
+                RecordCard {
+                    bounds: Rect::new(x, y, width, height),
+                    sleeve: Rect::new(x, y + 8.0, sleeve, sleeve),
+                    record: Rect::new(x + width - sleeve, y, sleeve, sleeve),
+                }
+            })
+            .collect();
+        Some(Self {
+            cards,
+            columns,
+            capacity,
+        })
+    }
+
+    /// Procedural material layers. `reveal` is caller-owned motion, not playback.
+    pub fn append_card(
+        card: RecordCard,
+        scene: &mut Scene,
+        reveal: f32,
+        rotation: f32,
+        label: ThemeRole,
+    ) -> bool {
+        if !reveal.is_finite()
+            || !rotation.is_finite()
+            || !card.bounds.is_valid()
+            || !card.sleeve.is_valid()
+            || !card.record.is_valid()
+        {
+            return false;
+        }
+        let reveal = reveal.clamp(0.0, 1.0);
+        let record = Rect::new(
+            card.sleeve.x + (card.record.x - card.sleeve.x) * (0.22 + reveal * 0.78),
+            card.record.y,
+            card.record.width,
+            card.record.height,
+        );
+        scene.push(Primitive::disc(
+            Rect::new(record.x + 3.0, record.y + 5.0, record.width, record.height),
+            ThemeRole::SurfaceRecessed,
+        ));
+        scene.push(Primitive::vinyl(record, label, rotation));
+        scene.push(Primitive::rounded_rect(
+            Rect::new(
+                card.sleeve.x + 3.0,
+                card.sleeve.y + 5.0,
+                card.sleeve.width,
+                card.sleeve.height,
+            ),
+            3.0,
+            ThemeRole::SurfaceRecessed,
+        ));
+        scene.push(
+            Primitive::rounded_rect(card.sleeve, 2.0, ThemeRole::SurfaceRaised)
+                .with_gloss(0.16)
+                .with_grain(0.002),
+        );
+        true
+    }
+}
+
+/// Lightweight vector-host fallback for the vinyl material. The first three
+/// radii are the outer disc, label and hole; remaining radii are resolved grooves.
+/// GPU hosts should use [`Primitive::vinyl`] instead of tessellating these rings.
+pub fn vinyl_radii(diameter: f32) -> Option<Vec<f32>> {
+    if !diameter.is_finite() || !(32.0..=4096.0).contains(&diameter) {
+        return None;
+    }
+    let radius = diameter * 0.5;
+    let material = Primitive::vinyl(
+        Rect::new(0.0, 0.0, diameter, diameter),
+        ThemeRole::Primary,
+        0.0,
+    );
+    let count = (radius * 0.22).floor().clamp(8.0, 64.0) as usize;
+    let mut radii = Vec::with_capacity(count + 3);
+    radii.extend([radius, radius * material.value, radius * material.radius]);
+    radii.extend((0..count).map(|i| radius * (0.38 + 0.55 * i as f32 / count as f32)));
+    Some(radii)
+}
 
 /// Derive a restrained accent from a host-decoded thumbnail (at most 64×64 RGBA pixels).
 /// Ignores transparent, near-black and near-white pixels; returns no fabricated color
@@ -77,7 +211,7 @@ impl Shelf {
         {
             return None;
         }
-        let gap = 24.0;
+        let gap = DETAIL_GAP;
         let detail_width = (bounds.width * 0.30).max(220.0);
         let grid_width = bounds.width - detail_width - gap;
         let max_columns = ((grid_width + gap) / 204.0).floor().max(1.0) as usize;
@@ -157,6 +291,59 @@ impl Shelf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn crate_is_bounded_and_sleeves_are_square() {
+        for bounds in [
+            Rect::new(0.0, 0.0, 960.0, 540.0),
+            Rect::new(20.0, 30.0, 1848.0, 900.0),
+        ] {
+            let grid = RecordCrate::layout(bounds, 24).unwrap();
+            assert!(grid.cards.len() <= grid.capacity && grid.capacity <= MAX_CARDS);
+            for card in grid.cards {
+                assert_eq!(card.sleeve.width, card.sleeve.height);
+                assert!(card.bounds.right() <= bounds.right());
+                assert!(card.bounds.bottom() <= bounds.bottom());
+            }
+        }
+        assert!(RecordCrate::layout(Rect::new(0.0, 0.0, f32::NAN, 900.0), 2).is_none());
+        assert!(RecordCrate::layout(Rect::new(0.0, 0.0, 960.0, 540.0), 25).is_none());
+    }
+    #[test]
+    fn vector_record_fallback_is_bounded_at_all_scales() {
+        for size in [32.0, 128.0, 420.0, 4096.0] {
+            let radii = vinyl_radii(size).unwrap();
+            assert!(radii.len() <= 67);
+            assert!(radii
+                .iter()
+                .all(|r| r.is_finite() && *r > 0.0 && *r <= size * 0.5));
+        }
+        assert!(vinyl_radii(f32::NAN).is_none());
+        assert!(vinyl_radii(8192.0).is_none());
+    }
+    #[test]
+    fn record_material_is_bounded_and_invalid_motion_is_atomic() {
+        let card = RecordCrate::layout(Rect::new(0.0, 0.0, 960.0, 540.0), 1)
+            .unwrap()
+            .cards[0];
+        let mut scene = Scene::default();
+        assert!(!RecordCrate::append_card(
+            card,
+            &mut scene,
+            f32::NAN,
+            0.0,
+            ThemeRole::Primary
+        ));
+        assert!(scene.is_empty());
+        assert!(RecordCrate::append_card(
+            card,
+            &mut scene,
+            1.0,
+            0.5,
+            ThemeRole::Primary
+        ));
+        assert!(scene.validate());
+        assert_eq!(scene.len(), 4);
+    }
     #[test]
     fn cards_are_square_and_detail_does_not_overlap() {
         let shelf = Shelf::layout(Rect::new(30.0, 40.0, 1920.0, 1080.0), 8).unwrap();

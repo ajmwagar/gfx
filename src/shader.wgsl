@@ -76,8 +76,12 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let half_size = input.size * 0.5;
     let kind = input.style.w;
     var distance = rounded_box_distance(point, half_size, input.shape.x);
-    if kind == 1u || kind == 3u || kind == 4u {
+    if kind == 1u || kind == 3u || kind == 4u || kind == 7u {
         distance = length(point) - min(half_size.x, half_size.y);
+    }
+    if kind == 7u {
+        let hole = min(half_size.x, half_size.y) * input.shape.x;
+        distance = max(distance, hole - length(point));
     }
     if kind == 5u {
         let direction = vec2(cos(input.shape.w), sin(input.shape.w));
@@ -152,6 +156,23 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
             color.rgb + accent.rgb * glow * lamp_active * max(input.material.z, frame.material.z),
             color.a,
         );
+    }
+
+    if kind == 7u {
+        let radius = max(min(half_size.x, half_size.y), 0.001);
+        let radial = length(point) / radius;
+        let angle = atan2(point.y, point.x);
+        // Derivative-filtered grooves: fade fine rings before they can shimmer.
+        let frequency = min(radius * frame.viewport.z * 0.22, 110.0);
+        let phase = radial * frequency;
+        let resolved = 1.0 - smoothstep(0.25, 0.5, fwidth(phase));
+        let groove = cos(phase * 6.28318530718) * resolved;
+        let reflection = pow(abs(cos(angle + 0.85)), 18.0);
+        let runout = smoothstep(0.33, 0.38, radial) * (1.0 - smoothstep(0.94, 0.98, radial));
+        let wax = fill.rgb * 0.40 + vec3(0.008 + groove * 0.004 * runout + reflection * 0.12 * gloss);
+        let paper = accent.rgb * (0.94 + cos(angle - input.shape.w) * 0.04);
+        let label = 1.0 - smoothstep(input.shape.z - antialias / radius, input.shape.z + antialias / radius, radial);
+        color = vec4(mix(wax, paper, label), fill.a);
     }
 
     color.a *= coverage;

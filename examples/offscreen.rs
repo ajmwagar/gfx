@@ -15,7 +15,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let console = std::env::args().any(|arg| arg == "--console");
     let flat = std::env::args().any(|arg| arg == "--flat");
-    let (width, height) = if console {
+    let records = std::env::args().any(|arg| arg == "--records");
+    let (width, height) = if console || records {
         (1280_u32, 720_u32)
     } else {
         (640, 360)
@@ -71,6 +72,20 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let signals = std::env::args().any(|arg| arg == "--signals");
     let mut theme = Theme::default();
+    if records {
+        theme.materials.grain = 0.0;
+        scene.clear();
+        for (i, label) in [ThemeRole::Primary, ThemeRole::Success, ThemeRole::Highlight]
+            .into_iter()
+            .enumerate()
+        {
+            scene.push(Primitive::vinyl(
+                Rect::new(32.0 + i as f32 * 412.0, 110.0, 380.0, 380.0),
+                label,
+                i as f32,
+            ));
+        }
+    }
     if signals {
         theme.materials.grain = 0.0;
         theme.materials.gloss = 0.0;

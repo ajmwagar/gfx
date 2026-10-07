@@ -21,6 +21,8 @@ pub enum PrimitiveKind {
     Line = 5,
     /// Antialiased circular arc.
     Arc = 6,
+    /// Procedural grooved vinyl with a paper label and transparent spindle hole.
+    Vinyl = 7,
 }
 
 /// One compact, instance-rendered visual primitive.
@@ -64,6 +66,17 @@ impl Primitive {
     /// Constructs a circular primitive fitted to the rectangle.
     pub const fn disc(rect: Rect, fill: ThemeRole) -> Self {
         Self::base(rect, PrimitiveKind::Disc, fill)
+    }
+
+    /// One-instance record material. `rotation` is a host-owned angle in radians;
+    /// GFX never infers that a selected record is playing.
+    pub const fn vinyl(rect: Rect, label: ThemeRole, rotation: f32) -> Self {
+        Self::base(rect, PrimitiveKind::Vinyl, ThemeRole::SurfaceRecessed)
+            .with_accent(label)
+            .with_value(0.32)
+            .with_radius(0.018)
+            .with_rotation(rotation)
+            .with_gloss(0.65)
     }
 
     /// Constructs a vertical level meter.
