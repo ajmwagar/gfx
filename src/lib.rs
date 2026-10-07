@@ -8,29 +8,30 @@
 //! The initial primitive set is intentionally small. It is designed for dense,
 //! animated control surfaces without becoming an application framework.
 
-mod clock;
 pub mod boids;
-pub mod reactor;
+mod clock;
 mod color;
-pub mod signals;
-pub mod topology;
-pub mod patchbay;
 pub mod console;
-pub mod media;
+pub mod data_views;
 #[cfg(feature = "wgpu")]
 mod frame;
 mod geometry;
 #[cfg(feature = "wgpu")]
 mod globe;
+pub mod media;
 mod orbit;
 mod orientation;
+pub mod patchbay;
 mod path;
+pub mod reactor;
 #[cfg(feature = "wgpu")]
 mod renderer;
 mod scene;
+pub mod signals;
 mod spatial;
 mod surface;
 mod theme;
+pub mod topology;
 
 pub use clock::AnalogClock;
 pub use color::Color;
