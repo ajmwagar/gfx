@@ -18,6 +18,7 @@ pub struct Flock {
     scratch: Vec<Bird>,
     aspect: f32,
     shark: Option<Bird>,
+    bounded: bool,
     prey: usize,
     retarget_in: f32,
     bite_remaining: f32,
@@ -53,15 +54,22 @@ impl Flock {
             birds,
             aspect,
             shark: None,
+            bounded: false,
             prey: 0,
             retarget_in: 0.0,
             bite_remaining: 0.0,
             catches: 0,
         })
     }
-    /// Enable a predator; school members react to its actual position.
-    pub fn aquarium(count: usize, aspect: f32) -> Result<Self, &'static str> {
+    /// Use real walls without introducing a predator.
+    pub fn bounded(count: usize, aspect: f32) -> Result<Self, &'static str> {
         let mut flock = Self::new(count, aspect)?;
+        flock.bounded = true;
+        Ok(flock)
+    }
+    /// Enable a predator in a contained school.
+    pub fn aquarium(count: usize, aspect: f32) -> Result<Self, &'static str> {
+        let mut flock = Self::bounded(count, aspect)?;
         // Start as a school rather than an evenly scattered flock.
         for bird in &mut flock.birds {
             bird.x = aspect * 0.55 + (bird.x / aspect - 0.5) * 0.35;
@@ -123,12 +131,12 @@ impl Flock {
                 if i == j {
                     continue;
                 }
-                let dx = if self.shark.is_some() {
+                let dx = if self.bounded {
                     other.x - original.x
                 } else {
                     wrap_delta(other.x - original.x, self.aspect)
                 };
-                let dy = if self.shark.is_some() {
+                let dy = if self.bounded {
                     other.y - original.y
                 } else {
                     wrap_delta(other.y - original.y, 1.0)
@@ -174,7 +182,7 @@ impl Flock {
             bird.vy *= scale;
             bird.x = original.x + bird.vx * dt;
             bird.y = original.y + bird.vy * dt;
-            if self.shark.is_some() {
+            if self.bounded {
                 contain(bird, self.aspect, 0.018);
             } else {
                 bird.x = bird.x.rem_euclid(self.aspect);
@@ -310,6 +318,24 @@ fn contain(bird: &mut Bird, aspect: f32, margin: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bounded_flock_reflects_at_walls_without_a_predator() {
+        let mut flock = Flock::bounded(1, 1.0).unwrap();
+        flock.birds[0] = Bird {
+            x: 0.981,
+            y: 0.5,
+            vx: 0.14,
+            vy: 0.0,
+        };
+        flock.step(0.1).unwrap();
+        assert!(flock.birds[0].vx < 0.0);
+        assert!(flock.shark.is_none());
+        for _ in 0..3600 {
+            flock.step(1.0 / 60.0).unwrap();
+        }
+        assert!((0.018..=0.982).contains(&flock.birds[0].x));
+        assert!((0.018..=0.982).contains(&flock.birds[0].y));
+    }
     #[test]
     fn deterministic_flock_stays_finite_bounded_and_renders_shared_primitives() {
         let mut a = Flock::new(64, 16.0 / 9.0).unwrap();
