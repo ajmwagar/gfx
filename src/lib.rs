@@ -8,6 +8,7 @@
 //! The initial primitive set is intentionally small. It is designed for dense,
 //! animated control surfaces without becoming an application framework.
 
+pub mod attention;
 pub mod boids;
 mod clock;
 mod color;
