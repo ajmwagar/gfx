@@ -1,5 +1,10 @@
 # Console strips and peak meter faces
 
+Compact banks can select an optional `icon` (`play`, `keyboard`, `ports`). These
+are bounded vector primitives, not bitmap logos; the provider owns their semantic
+assignment. Icon banks render only identities and routing lamps. Standard strips
+have inset separators so adjacent channels don't share cramped edges.
+
 `console::Console` is a bounded, read-only strip panel; `SignalFrame::Console`
 transports it through existing renderer adapters. `Console::append` produces the
 same Scene primitives used by wGPU hosts and `Console::labels` supplies shared

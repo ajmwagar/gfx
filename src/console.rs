@@ -17,6 +17,18 @@ pub enum MeterStyle {
     Led,
 }
 
+/// Small vector identities for compact banks; the host chooses their meaning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BankIcon {
+    /// Playback/source identity.
+    Play,
+    /// Musical keyboard/controller identity.
+    Keyboard,
+    /// Paired port/connector identity.
+    Ports,
+}
+
 /// Calibration and geometry, independent of the host's semantic color palette.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -118,6 +130,9 @@ fn default_show_meter() -> bool {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Console {
+    /// Compact icon/name tiles instead of tall channel strips.
+    #[serde(default)]
+    pub icon: Option<BankIcon>,
     /// At most sixteen channel strips.
     pub strips: Vec<Strip>,
     /// True for side-by-side master strips; false for compact source rows.
@@ -171,11 +186,17 @@ impl Console {
     /// Invalid measurements/configuration fail before the scene is modified.
     pub fn append(&self, scene: &mut Scene, b: Rect) -> Result<(), ViewError> {
         let cells = self.cells(b)?;
+        if let Some(icon) = self.icon {
+            for (strip, cell) in self.strips.iter().zip(cells) {
+                bank_tile(scene, cell, strip.state, icon);
+            }
+            return Ok(());
+        }
         for (strip, cell) in self.strips.iter().zip(cells) {
             let card = Rect::new(
-                cell.x + cell.width * if self.columns { 0.0 } else { 0.02 },
+                cell.x + cell.width * 0.025,
                 cell.y + cell.height * 0.03,
-                cell.width * if self.columns { 1.0 } else { 0.96 },
+                cell.width * 0.95,
                 cell.height * 0.94,
             );
             scene.push(Primitive::rounded_rect(
@@ -261,6 +282,23 @@ impl Console {
     /// Uses the same validation/layout as geometry.
     pub fn labels(&self, b: Rect) -> Result<Vec<Label>, ViewError> {
         let cells = self.cells(b)?;
+        if self.icon.is_some() {
+            return Ok(self
+                .strips
+                .iter()
+                .zip(cells)
+                .map(|(strip, cell)| Label {
+                    text: strip.name.clone(),
+                    bounds: Rect::new(
+                        cell.x + cell.width * 0.1,
+                        cell.y + cell.height * 0.65,
+                        cell.width * 0.8,
+                        cell.height * 0.30,
+                    ),
+                    role: ThemeRole::Text,
+                })
+                .collect());
+        }
         let mut labels = vec![];
         for (strip, cell) in self.strips.iter().zip(cells) {
             let label = |text: String, y: f32, h: f32, role: ThemeRole| Label {
@@ -327,6 +365,89 @@ impl Console {
             ));
         }
         Ok(labels)
+    }
+}
+
+fn bank_tile(scene: &mut Scene, cell: Rect, state: State, icon: BankIcon) {
+    let card = Rect::new(
+        cell.x + cell.width * 0.035,
+        cell.y + cell.height * 0.04,
+        cell.width * 0.93,
+        cell.height * 0.92,
+    );
+    scene.push(Primitive::rounded_rect(
+        card,
+        8.0_f32.min(card.height * 0.12),
+        ThemeRole::SurfaceRaised,
+    ));
+    let size = (card.height * 0.44).min(card.width * 0.46);
+    let x = card.x + card.width * 0.5 - size * 0.5;
+    let y = card.y + card.height * 0.12;
+    let line =
+        |scene: &mut Scene, a, b| scene.push(Primitive::line(a, b, 2.0, ThemeRole::TextMuted));
+    match icon {
+        BankIcon::Play => {
+            line(
+                scene,
+                [x + size * 0.30, y],
+                [x + size * 0.85, y + size * 0.5],
+            );
+            line(
+                scene,
+                [x + size * 0.85, y + size * 0.5],
+                [x + size * 0.30, y + size],
+            );
+            line(scene, [x + size * 0.30, y + size], [x + size * 0.30, y]);
+        }
+        BankIcon::Keyboard => {
+            scene.push(Primitive::rounded_rect(
+                Rect::new(x - size * 0.25, y, size * 1.5, size),
+                3.0,
+                ThemeRole::TextMuted,
+            ));
+            for key in 0_u8..5 {
+                let kx = x - size * 0.25 + f32::from(key) * size * 0.3;
+                line(scene, [kx, y + size * 0.05], [kx, y + size * 0.95]);
+                scene.push(Primitive::rounded_rect(
+                    Rect::new(kx + size * 0.1, y, size * 0.10, size * 0.58),
+                    1.0,
+                    ThemeRole::SurfaceRaised,
+                ));
+            }
+        }
+        BankIcon::Ports => {
+            for offset in [0.15, 0.65] {
+                scene.push(Primitive::rounded_rect(
+                    Rect::new(x + size * offset, y + size * 0.25, size * 0.3, size * 0.3),
+                    size * 0.15,
+                    ThemeRole::TextMuted,
+                ));
+            }
+            line(
+                scene,
+                [x + size * 0.3, y + size * 0.55],
+                [x + size * 0.8, y + size * 0.85],
+            );
+        }
+    }
+    let lamp = Rect::new(
+        card.right() - 12.0_f32.min(card.width * 0.12),
+        card.y + card.height * 0.08,
+        6.0_f32.min(card.width * 0.05),
+        6.0_f32.min(card.height * 0.10),
+    );
+    scene.push(Primitive::rounded_rect(lamp, 3.0, state.role()));
+    if matches!(state, State::Unknown | State::Configured | State::Idle) {
+        scene.push(Primitive::rounded_rect(
+            Rect::new(
+                lamp.x + lamp.width * 0.25,
+                lamp.y + lamp.height * 0.25,
+                lamp.width * 0.5,
+                lamp.height * 0.5,
+            ),
+            2.0,
+            ThemeRole::SurfaceRaised,
+        ));
     }
 }
 
@@ -433,6 +554,7 @@ mod tests {
     use super::*;
     fn panel(style: MeterStyle) -> Console {
         Console {
+            icon: None,
             strips: vec![Strip {
                 show_meter: true,
                 name: "L".into(),
@@ -462,6 +584,20 @@ mod tests {
                     .iter()
                     .any(|l| l.text.contains("dBFS"))
             );
+        }
+    }
+    #[test]
+    fn icon_banks_are_bounded_and_show_identity_without_meter_text() {
+        for icon in [BankIcon::Play, BankIcon::Keyboard, BankIcon::Ports] {
+            let mut p = panel(MeterStyle::Led);
+            p.icon = Some(icon);
+            let mut scene = Scene::new();
+            p.append(&mut scene, Rect::new(0.0, 0.0, 240.0, 96.0))
+                .unwrap();
+            assert!(scene.validate());
+            let labels = p.labels(Rect::new(0.0, 0.0, 240.0, 96.0)).unwrap();
+            assert_eq!(labels.len(), 1);
+            assert_eq!(labels[0].text, "L");
         }
     }
     #[test]
