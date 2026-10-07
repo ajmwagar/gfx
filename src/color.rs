@@ -41,6 +41,25 @@ impl Color {
         [self.r, self.g, self.b, self.a]
     }
 
+    /// Convert linear-light color to 8-bit sRGB for platform paint adapters.
+    pub fn to_srgb8(self) -> [u8; 4] {
+        fn channel(value: f32) -> u8 {
+            let value = value.clamp(0.0, 1.0);
+            let encoded = if value <= 0.003_130_8 {
+                value * 12.92
+            } else {
+                1.055 * value.powf(1.0 / 2.4) - 0.055
+            };
+            (encoded * 255.0).round() as u8
+        }
+        [
+            channel(self.r),
+            channel(self.g),
+            channel(self.b),
+            (self.a.clamp(0.0, 1.0) * 255.0).round() as u8,
+        ]
+    }
+
     pub(crate) fn valid(self) -> bool {
         self.to_array()
             .into_iter()

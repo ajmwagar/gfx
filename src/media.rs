@@ -80,12 +80,12 @@ impl Shelf {
         let gap = 24.0;
         let detail_width = (bounds.width * 0.30).max(220.0);
         let grid_width = bounds.width - detail_width - gap;
-        let columns = ((grid_width + gap) / 204.0).floor().max(1.0) as usize;
-        let card_width = (grid_width - gap * (columns - 1) as f32) / columns as f32;
-        let rows = ((bounds.height + gap) / (card_width + 80.0 + gap)).floor() as usize;
-        if count > columns * rows {
-            return None;
-        }
+        let max_columns = ((grid_width + gap) / 204.0).floor().max(1.0) as usize;
+        let (columns, card_width) = (1..=max_columns).find_map(|columns| {
+            let width = (grid_width - gap * (columns - 1) as f32) / columns as f32;
+            let rows = ((bounds.height + gap) / (width + 80.0 + gap)).floor() as usize;
+            (count <= columns * rows).then_some((columns, width))
+        })?;
         let cards = (0..count)
             .map(|index| {
                 let x = bounds.x + (index % columns) as f32 * (card_width + gap);
