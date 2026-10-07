@@ -1,11 +1,14 @@
 //! Read-only mixing-console strips and calibrated peak-meter faces.
 //! Hosts own measurements, ballistics, controls and theme colors.
 use crate::{
-    Primitive, Rect, Scene, ThemeRole,
     signals::ViewError,
     topology::{Label, State},
+    Primitive, Rect, Scene, ThemeRole,
 };
 use serde::{Deserialize, Serialize};
+
+mod surface;
+pub use surface::{gain_fraction, gain_from_fraction, ControlLocation, StripSurface};
 
 /// Meter face variant. Both display caller-provided dB, not synthesized VU data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,6 +144,12 @@ pub struct Console {
     pub meter: MeterConfig,
 }
 impl Console {
+    fn physical_surface(&self, b: Rect) -> bool {
+        self.icon.is_none()
+            && self.columns
+            && b.height >= 220.0
+            && b.width / self.strips.len().max(1) as f32 >= 64.0
+    }
     fn validate(&self, b: Rect) -> Result<(), ViewError> {
         if !b.is_valid()
             || b.width < 2.0
@@ -186,6 +195,12 @@ impl Console {
     /// Invalid measurements/configuration fail before the scene is modified.
     pub fn append(&self, scene: &mut Scene, b: Rect) -> Result<(), ViewError> {
         let cells = self.cells(b)?;
+        if self.physical_surface(b) {
+            for (strip, cell) in self.strips.iter().zip(cells) {
+                surface::append(scene, StripSurface::new(cell), strip, &self.meter);
+            }
+            return Ok(());
+        }
         if let Some(icon) = self.icon {
             for (strip, cell) in self.strips.iter().zip(cells) {
                 bank_tile(scene, cell, strip.state, icon);
@@ -282,6 +297,14 @@ impl Console {
     /// Uses the same validation/layout as geometry.
     pub fn labels(&self, b: Rect) -> Result<Vec<Label>, ViewError> {
         let cells = self.cells(b)?;
+        if self.physical_surface(b) {
+            return Ok(self
+                .strips
+                .iter()
+                .zip(cells)
+                .flat_map(|(strip, cell)| surface::labels(StripSurface::new(cell), strip))
+                .collect());
+        }
         if self.icon.is_some() {
             return Ok(self
                 .strips
@@ -578,12 +601,11 @@ mod tests {
             p.append(&mut s, Rect::new(0.0, 0.0, 400.0, 240.0)).unwrap();
             assert!(s.validate());
             assert!(s.len() < 100);
-            assert!(
-                p.labels(Rect::new(0.0, 0.0, 400.0, 240.0))
-                    .unwrap()
-                    .iter()
-                    .any(|l| l.text.contains("dBFS"))
-            );
+            assert!(p
+                .labels(Rect::new(0.0, 0.0, 400.0, 240.0))
+                .unwrap()
+                .iter()
+                .any(|l| l.text.contains("dBFS")));
         }
     }
     #[test]
@@ -612,6 +634,13 @@ mod tests {
         p.append(&mut scene, Rect::new(0.0, 0.0, 400.0, 80.0))
             .unwrap();
         assert!(scene.validate());
+    }
+    #[test]
+    fn shallow_and_narrow_panels_keep_compact_layout() {
+        let p = panel(MeterStyle::Led);
+        assert!(!p.physical_surface(Rect::new(0.0, 0.0, 400.0, 100.0)));
+        assert!(!p.physical_surface(Rect::new(0.0, 0.0, 32.0, 640.0)));
+        assert!(p.physical_surface(Rect::new(0.0, 0.0, 160.0, 640.0)));
     }
     #[test]
     fn nan_is_atomic_and_missing_is_not_silence() {

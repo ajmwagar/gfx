@@ -13,6 +13,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
+    let console = std::env::args().any(|arg| arg == "--console");
+    let (width, height) = if console {
+        (1280_u32, 720_u32)
+    } else {
+        (640, 360)
+    };
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
@@ -32,8 +38,8 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("fpl-gfx example target"),
         size: wgpu::Extent3d {
-            width: 640,
-            height: 360,
+            width,
+            height,
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
@@ -70,6 +76,57 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         scene.clear();
         signal_gallery::append(&mut scene)?;
     }
+    if console {
+        // Avoid grain swamping dark linear-space faceplates. Colors stay host-owned.
+        theme.materials.grain = 0.0;
+        theme.colors[ThemeRole::Highlight as usize] = Color::from_srgb8(232, 219, 181, 255);
+        use fpl_gfx::{
+            console::{Console, MeterConfig, MeterStyle, Strip},
+            topology::State,
+        };
+        scene.clear();
+        scene.push(Primitive::rounded_rect(
+            Rect::new(16.0, 16.0, 1248.0, 688.0),
+            12.0,
+            ThemeRole::Shadow,
+        ));
+        let strips = |names: &[&str]| {
+            names
+                .iter()
+                .enumerate()
+                .map(|(i, name)| Strip {
+                    name: (*name).into(),
+                    detail: String::new(),
+                    show_meter: true,
+                    state: State::Connected,
+                    peak_dbfs: Some(-18.0 + i as f32 * 3.0),
+                    gain_db: Some(-12.0 + i as f32 * 3.0),
+                })
+                .collect()
+        };
+        Console {
+            icon: None,
+            columns: true,
+            strips: strips(&["1", "2", "3", "4"]),
+            meter: MeterConfig {
+                vertical_led: true,
+                ..Default::default()
+            },
+        }
+        .append(&mut scene, Rect::new(40.0, 40.0, 780.0, 640.0))?;
+        Console {
+            icon: None,
+            columns: true,
+            strips: strips(&["L", "R"]),
+            meter: MeterConfig {
+                style: MeterStyle::Needle,
+                face: ThemeRole::Highlight,
+                ink: ThemeRole::Shadow,
+                ..Default::default()
+            },
+        }
+        .append(&mut scene, Rect::new(860.0, 40.0, 380.0, 640.0))?;
+    }
 
     let mut renderer = Renderer::new(&device, RendererConfig::new(format));
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -82,7 +139,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             encoder: &mut encoder,
             target: &target,
         },
-        Viewport::new(640.0, 360.0),
+        Viewport::new(width as f32, height as f32),
         &theme,
         &scene,
         RenderOptions {
@@ -97,7 +154,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let readback = output.as_ref().map(|_| {
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("example image readback"),
-            size: 640 * 360 * 4,
+            size: u64::from(width) * u64::from(height) * 4,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -107,13 +164,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 buffer: &buffer,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(640 * 4),
-                    rows_per_image: Some(360),
+                    bytes_per_row: Some(width * 4),
+                    rows_per_image: Some(height),
                 },
             },
             wgpu::Extent3d {
-                width: 640,
-                height: 360,
+                width,
+                height,
                 depth_or_array_layers: 1,
             },
         );
@@ -132,7 +189,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         receive.recv()??;
         let bytes = buffer.slice(..).get_mapped_range();
         let mut file = std::io::BufWriter::new(std::fs::File::create_new(path)?);
-        file.write_all(b"P6\n640 360\n255\n")?;
+        write!(file, "P6\n{width} {height}\n255\n")?;
         for pixel in bytes.chunks_exact(4) {
             file.write_all(&pixel[..3])?;
         }

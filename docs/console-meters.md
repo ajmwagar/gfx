@@ -1,5 +1,27 @@
 # Console strips and peak meter faces
 
+Tall `columns` now use a fixed recording-console surface rather than card layout:
+recessed meter glass above a separate long fader corridor, observed-routing lamp,
+scribble strip, countersunk fasteners, unity marks and raised fader cap. Compact
+rows and icon banks retain their own layouts. No audio/control schema changed.
+
+`console::StripSurface` is the shared geometry for painting and host hit testing.
+`ControlLocation` adds relative depth hints (not world-space units) for a future
+extruded VR surface. Hosts bind their stable channel/control identities, choose
+physical scale, and own all interaction. `gain_fraction`/`gain_from_fraction`
+share one display/input taper. A missing gain has an empty rail, never a fake cap.
+Peak meters remain peak dBFS, not calibrated RMS VU measurements.
+
+The first pass uses themeable procedural geometry, no baked image dependency or
+3D runtime. It can be rendered into a cached texture with the existing offscreen
+renderer; live needles, lamps and caps remain separate primitives. A true mesh
+renderer and asset-baking pipeline are not implemented here.
+
+Preview: `cargo run --release --example offscreen -- --console --output console.ppm`.
+This geometry-only preview uses explicit demo values, not studio telemetry. Hosts
+draw the channel identity/value glyphs from `Console::labels` with their existing
+text renderer. Never substitute those demo levels for missing live readings.
+
 Compact banks can select an optional `icon` (`play`, `keyboard`, `ports`). These
 are bounded vector primitives, not bitmap logos; the provider owns their semantic
 assignment. Icon banks render only identities and routing lamps. Standard strips
