@@ -34,6 +34,8 @@ loop, application model, or GPU device.
 - Validated IOSurface/DMA-BUF descriptors with explicit lease lifetimes.
 - Rendering into a texture view supplied by a compositor or application.
 - Observable per-frame work statistics.
+- Renderer-neutral assistant reactor geometry and deterministic animation via
+  `reactor::visit`, available without the `wgpu` feature.
 - Rendering-only [DAW signal views](docs/signal-views.md): piano roll/live notes,
   peak waveforms, scope/automation/LFO traces and log-frequency spectra.
 
@@ -124,6 +126,29 @@ See [`examples/offscreen.rs`](examples/offscreen.rs) for device creation and a
 complete offscreen frame.
 
 ## Theming contract
+
+### Assistant reactor
+
+`reactor::visit(Activity::Thinking, seconds, |mark| { /* draw mark */ })`
+emits at most 38 vector marks with no allocations. Uniformly fit the canonical
+`reactor::SIZE` into your bounds, centered on `reactor::CENTER`. Adapters draw
+discs, rings, clockwise arcs and bars; hosts resolve surface/accent/ink colors.
+The native JARVIS overlay consumes this same geometry. Canvas and Holodeck can
+consume it without depending on JARVIS or Iced.
+
+The caller supplies a clock and visual activity. Hidden emits no marks. Thinking
+uses counter-rotating rings; speaking uses a faster pulse, not a fabricated audio
+level. Real audio levels, presence, control targets and lifecycle belong to the
+host. No timers, windows, network subscriptions or assistant routing live here.
+Non-finite clocks render the static zero frame. Hosts may freeze the clock for
+reduced motion and should stop scheduling frames while hidden.
+
+`reactor::visit_with_level` accepts an optional measured playback envelope;
+`Some(0.0)` means real silence, while `None` preserves activity-only animation.
+It does not measure audio, predict phonemes, or subscribe to a transport.
+`reactor::band_mesh` extrudes a ring/arc into a bounded, closed triangle mesh
+for 3D hosts. Build and retain these meshes once; animate their transforms and
+colors, not their topology. Holodeck's bounded Rust/Lua bridge consumes both.
 
 Views select [`ThemeRole`](https://docs.rs/fpl-gfx/latest/fpl_gfx/enum.ThemeRole.html)
 values such as `SurfaceRaised`, `Primary`, `Warning`, and `MeterHigh`. The host
