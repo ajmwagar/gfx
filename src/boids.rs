@@ -368,6 +368,10 @@ mod tests {
             aquarium.step(1.0 / 60.0).unwrap();
         }
         let shark = aquarium.shark.unwrap();
+        assert!(
+            aquarium.catches > 0,
+            "Predictive hunter must actually catch fish in a sustained run"
+        );
         assert_ne!(first.x, shark.x);
         assert!(shark.x.is_finite() && (0.0..1.0).contains(&shark.y));
         assert!(aquarium
