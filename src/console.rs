@@ -192,6 +192,41 @@ impl Console {
                 1.0,
                 strip.state.role(),
             ));
+            // Shape as well as color distinguishes an observed route from a
+            // configured/unknown one; this is routing state, not signal activity.
+            let size = (card.width * 0.08).min(card.height * 0.14).min(12.0);
+            let lamp = Rect::new(card.right() - size * 1.7, card.y + size * 0.7, size, size);
+            scene.push(Primitive::rounded_rect(
+                lamp,
+                size * 0.5,
+                strip.state.role(),
+            ));
+            if matches!(
+                strip.state,
+                State::Unknown | State::Configured | State::Idle
+            ) {
+                scene.push(Primitive::rounded_rect(
+                    Rect::new(
+                        lamp.x + size * 0.22,
+                        lamp.y + size * 0.22,
+                        size * 0.56,
+                        size * 0.56,
+                    ),
+                    size * 0.28,
+                    ThemeRole::SurfaceRaised,
+                ));
+            }
+            if strip.show_meter && strip.peak_dbfs.is_none() {
+                let y = card.y + card.height * 0.59;
+                for offset in [0.43, 0.53] {
+                    scene.push(Primitive::line(
+                        [card.x + card.width * offset, y],
+                        [card.x + card.width * (offset + 0.05), y],
+                        2.0,
+                        ThemeRole::TextMuted,
+                    ));
+                }
+            }
             if strip.show_meter && strip.peak_dbfs.is_some() {
                 let face = Rect::new(
                     card.x + card.width * 0.07,
@@ -202,36 +237,18 @@ impl Console {
                 meter(scene, face, &self.meter, strip.peak_dbfs);
             }
             if let Some(gain) = strip.gain_db.filter(|_| self.columns) {
-                if self.columns {
-                    let x = card.x + card.width * 0.88;
-                    let top = card.y + card.height * 0.33;
-                    let height = card.height * 0.38;
-                    scene.push(Primitive::line(
-                        [x, top],
-                        [x, top + height],
-                        2.0,
-                        ThemeRole::Outline,
-                    ));
-                    let y = top + height * (1.0 - ((gain + 60.0) / 72.0).clamp(0.0, 1.0));
-                    scene.push(Primitive::rounded_rect(
-                        Rect::new(x - 6.0, y - 4.0, 12.0, 8.0),
-                        2.0,
-                        ThemeRole::Text,
-                    ));
-                    continue;
-                }
-                let y = card.y + card.height * 0.85;
-                let start = card.x + card.width * 0.1;
-                let width = card.width * 0.8;
+                let x = card.x + card.width * 0.88;
+                let top = card.y + card.height * 0.33;
+                let height = card.height * 0.38;
                 scene.push(Primitive::line(
-                    [start, y],
-                    [start + width, y],
+                    [x, top],
+                    [x, top + height],
                     2.0,
                     ThemeRole::Outline,
                 ));
-                let x = start + width * ((gain + 60.0) / 72.0).clamp(0.0, 1.0);
+                let y = top + height * (1.0 - ((gain + 60.0) / 72.0).clamp(0.0, 1.0));
                 scene.push(Primitive::rounded_rect(
-                    Rect::new(x - 3.0, y - 4.0, 6.0, 8.0),
+                    Rect::new(x - 6.0, y - 4.0, 12.0, 8.0),
                     2.0,
                     ThemeRole::Text,
                 ));
@@ -298,13 +315,6 @@ impl Console {
                         });
                     }
                 }
-            } else if strip.show_meter {
-                labels.push(label(
-                    "Level unavailable".into(),
-                    if self.columns { 0.49 } else { 0.55 },
-                    if self.columns { 0.11 } else { 0.18 },
-                    ThemeRole::TextMuted,
-                ));
             }
             labels.push(label(
                 match strip.gain_db {
@@ -475,11 +485,10 @@ mod tests {
         assert!(p.append(&mut s, Rect::new(0.0, 0.0, 400.0, 240.0)).is_err());
         assert!(s.is_empty());
         p.strips[0].peak_dbfs = None;
-        assert!(
-            p.labels(Rect::new(0.0, 0.0, 400.0, 240.0))
-                .unwrap()
-                .iter()
-                .any(|l| l.text == "Level unavailable")
-        );
+        let labels = p.labels(Rect::new(0.0, 0.0, 400.0, 240.0)).unwrap();
+        assert!(!labels.iter().any(|l| l.text.contains("dBFS")));
+        assert!(!labels.iter().any(|l| l.text.contains("unavailable")));
+        p.append(&mut s, Rect::new(0.0, 0.0, 400.0, 240.0)).unwrap();
+        assert!(s.validate());
     }
 }

@@ -20,6 +20,11 @@ does not implement VU ballistics; hosts retain exact numeric readouts from the
 source snapshot. Missing levels are `null`, not zero or a synthetic animation.
 `show_meter: false` is for non-audio routing/controller/rack cards.
 
+Routing lamps use both shape and color: hollow means configured, unknown or
+idle; filled means observed connection/activity or fault (semantic color still
+distinguishes these). They do not infer audio activity from routing. Missing
+levels draw two dashes, never a zero reading or a fabricated lit meter.
+
 Observed gain draws a read-only fader reference. An absent gain never draws a
 pretend control. Typed interactions, scaling gains, meter acquisition and peak
 hold/reset remain host responsibilities.
