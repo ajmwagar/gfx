@@ -14,6 +14,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let console = std::env::args().any(|arg| arg == "--console");
+    let flat = std::env::args().any(|arg| arg == "--flat");
     let (width, height) = if console {
         (1280_u32, 720_u32)
     } else {
@@ -81,10 +82,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         theme.materials.grain = 0.0;
         theme.colors[ThemeRole::Highlight as usize] = Color::from_srgb8(232, 219, 181, 255);
         use fpl_gfx::{
-            console::{Console, MeterConfig, MeterStyle, Strip},
+            console::{Console, ConsoleAppearance, MeterConfig, MeterStyle, Strip},
             topology::State,
         };
         scene.clear();
+        let appearance = if flat {
+            theme.materials.gloss = 0.0;
+            ConsoleAppearance::flat()
+        } else {
+            ConsoleAppearance::default()
+        };
         scene.push(Primitive::rounded_rect(
             Rect::new(16.0, 16.0, 1248.0, 688.0),
             12.0,
@@ -113,7 +120,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 ..Default::default()
             },
         }
-        .append(&mut scene, Rect::new(40.0, 40.0, 780.0, 640.0))?;
+        .append_with_appearance(
+            &mut scene,
+            Rect::new(40.0, 40.0, 780.0, 640.0),
+            &appearance,
+        )?;
         Console {
             icon: None,
             columns: true,
@@ -125,7 +136,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 ..Default::default()
             },
         }
-        .append(&mut scene, Rect::new(860.0, 40.0, 380.0, 640.0))?;
+        .append_with_appearance(
+            &mut scene,
+            Rect::new(860.0, 40.0, 380.0, 640.0),
+            &appearance,
+        )?;
     }
 
     let mut renderer = Renderer::new(&device, RendererConfig::new(format));

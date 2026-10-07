@@ -5,6 +5,71 @@ use crate::{
     topology::{Label, State},
     Primitive, Rect, Scene, ThemeRole,
 };
+use serde::{Deserialize, Serialize};
+
+/// Console material tokens. Independent of audio snapshots and control geometry.
+/// Colors resolve through the host's existing semantic palette, not a second palette.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ConsoleAppearance {
+    /// Faceplate color role.
+    pub face: ThemeRole,
+    /// Fader cap color role.
+    pub cap: ThemeRole,
+    /// Fader slot color role.
+    pub slot: ThemeRole,
+    /// Scribble-strip color role.
+    pub identity: ThemeRole,
+    /// Engraved scale and fastener color role.
+    pub markings: ThemeRole,
+    /// Local directional material highlight, 0..=1.
+    pub gloss: f32,
+    /// Local fine grain, 0..=0.02 (global renderer material remains host-owned).
+    pub grain: f32,
+    /// Show edge bevels and fasteners. Does not change hit geometry.
+    pub hardware_details: bool,
+    /// Show the fader cap's cast shadow.
+    pub cast_shadows: bool,
+}
+impl Default for ConsoleAppearance {
+    fn default() -> Self {
+        Self {
+            face: ThemeRole::Surface,
+            cap: ThemeRole::TextMuted,
+            slot: ThemeRole::Shadow,
+            identity: ThemeRole::SurfaceRecessed,
+            markings: ThemeRole::TextMuted,
+            gloss: 0.22,
+            grain: 0.001,
+            hardware_details: true,
+            cast_shadows: true,
+        }
+    }
+}
+impl ConsoleAppearance {
+    /// A quiet flat finish with exactly the same control positions and state cues.
+    /// Set global renderer gloss/grain to zero as well for a fully flat wGPU theme.
+    pub fn flat() -> Self {
+        Self {
+            gloss: 0.0,
+            grain: 0.0,
+            hardware_details: false,
+            cast_shadows: false,
+            ..Self::default()
+        }
+    }
+    /// Validate external material tokens before any scene mutation.
+    pub fn validate(&self) -> Result<(), crate::signals::ViewError> {
+        if !self.gloss.is_finite()
+            || !(0.0..=1.0).contains(&self.gloss)
+            || !self.grain.is_finite()
+            || !(0.0..=0.02).contains(&self.grain)
+        {
+            return Err(crate::signals::ViewError);
+        }
+        Ok(())
+    }
+}
 
 /// One render-independent location suitable for a hit target or extrusion.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -74,39 +139,47 @@ pub fn gain_from_fraction(value: f32) -> f32 {
     value.clamp(0.0, 1.0) * 72.0 - 60.0
 }
 
-pub(super) fn append(scene: &mut Scene, g: StripSurface, strip: &Strip, config: &MeterConfig) {
+pub(super) fn append(
+    scene: &mut Scene,
+    g: StripSurface,
+    strip: &Strip,
+    config: &MeterConfig,
+    appearance: &ConsoleAppearance,
+) {
     let b = g.panel;
     scene.push(
-        Primitive::rounded_rect(b, 2.0, ThemeRole::Surface)
-            .with_gloss(0.22)
-            .with_grain(0.001),
+        Primitive::rounded_rect(b, 2.0, appearance.face)
+            .with_gloss(appearance.gloss)
+            .with_grain(appearance.grain),
     );
-    scene.push(Primitive::line(
-        [b.x, b.y],
-        [b.x, b.bottom()],
-        1.0,
-        ThemeRole::Highlight,
-    ));
-    scene.push(Primitive::line(
-        [b.right(), b.y],
-        [b.right(), b.bottom()],
-        2.0,
-        ThemeRole::Shadow,
-    ));
-    // Countersunk fasteners, not interactive decorations.
-    let radius = b.width.min(b.height) * 0.022;
-    for x in [b.x + b.width * 0.08, b.right() - b.width * 0.08] {
-        let y = b.bottom() - b.height * 0.025;
-        scene.push(Primitive::disc(
-            Rect::new(x - radius, y - radius, radius * 2.0, radius * 2.0),
-            ThemeRole::Shadow,
+    if appearance.hardware_details {
+        scene.push(Primitive::line(
+            [b.x, b.y],
+            [b.x, b.bottom()],
+            1.0,
+            ThemeRole::Highlight,
         ));
         scene.push(Primitive::line(
-            [x - radius * 0.5, y],
-            [x + radius * 0.5, y],
-            0.7,
-            ThemeRole::TextMuted,
+            [b.right(), b.y],
+            [b.right(), b.bottom()],
+            2.0,
+            ThemeRole::Shadow,
         ));
+        // Countersunk fasteners, not interactive decorations.
+        let radius = b.width.min(b.height) * 0.022;
+        for x in [b.x + b.width * 0.08, b.right() - b.width * 0.08] {
+            let y = b.bottom() - b.height * 0.025;
+            scene.push(Primitive::disc(
+                Rect::new(x - radius, y - radius, radius * 2.0, radius * 2.0),
+                ThemeRole::Shadow,
+            ));
+            scene.push(Primitive::line(
+                [x - radius * 0.5, y],
+                [x + radius * 0.5, y],
+                0.7,
+                appearance.markings,
+            ));
+        }
     }
     if strip.show_meter {
         meter(scene, g.meter.bounds, config, strip.peak_dbfs);
@@ -133,7 +206,7 @@ pub(super) fn append(scene: &mut Scene, g: StripSurface, strip: &Strip, config: 
     scene.push(Primitive::rounded_rect(
         Rect::new(x - f.width * 0.08, f.y, f.width * 0.16, f.height),
         f.width * 0.05,
-        ThemeRole::Shadow,
+        appearance.slot,
     ));
     for db in [-60.0, -36.0, -24.0, -12.0, -6.0, 0.0, 6.0, 12.0] {
         let y = g.fader_y(db);
@@ -146,30 +219,32 @@ pub(super) fn append(scene: &mut Scene, g: StripSurface, strip: &Strip, config: 
             [x - f.width * 0.48, y],
             [x - f.width * 0.48 + width, y],
             if db == 0.0 { 2.0 } else { 1.0 },
-            ThemeRole::TextMuted,
+            appearance.markings,
         ));
     }
     if let Some(db) = strip.gain_db {
         let y = g.fader_y(db);
         let h = b.height * 0.028;
         let cap = Rect::new(x - f.width * 0.36, y - h, f.width * 0.72, h * 2.0);
-        scene.push(Primitive::rounded_rect(
-            Rect::new(cap.x + 2.0, cap.y + 3.0, cap.width, cap.height),
-            2.0,
-            ThemeRole::Shadow,
-        ));
-        scene.push(Primitive::rounded_rect(cap, 2.0, ThemeRole::TextMuted).with_gloss(0.7));
+        if appearance.cast_shadows {
+            scene.push(Primitive::rounded_rect(
+                Rect::new(cap.x + 2.0, cap.y + 3.0, cap.width, cap.height),
+                2.0,
+                ThemeRole::Shadow,
+            ));
+        }
+        scene.push(Primitive::rounded_rect(cap, 2.0, appearance.cap).with_gloss(appearance.gloss));
         scene.push(Primitive::line(
             [cap.x + cap.width * 0.12, y],
             [cap.right() - cap.width * 0.12, y],
             2.0,
-            ThemeRole::Shadow,
+            appearance.slot,
         ));
     }
     scene.push(Primitive::rounded_rect(
         g.identity,
         1.0,
-        ThemeRole::SurfaceRecessed,
+        appearance.identity,
     ));
 }
 
@@ -219,6 +294,21 @@ mod tests {
         assert_eq!(gain_fraction(24.0), 1.0);
     }
     #[test]
+    fn appearance_is_bounded_and_round_trips() {
+        for a in [ConsoleAppearance::default(), ConsoleAppearance::flat()] {
+            a.validate().unwrap();
+            let json = serde_json::to_string(&a).unwrap();
+            assert_eq!(serde_json::from_str::<ConsoleAppearance>(&json).unwrap(), a);
+        }
+        let mut invalid = ConsoleAppearance::default();
+        invalid.gloss = f32::NAN;
+        assert!(invalid.validate().is_err());
+        invalid.gloss = 0.0;
+        invalid.grain = 0.03;
+        assert!(invalid.validate().is_err());
+        assert!(serde_json::from_str::<ConsoleAppearance>(r#"{"unrecognized":true}"#).is_err());
+    }
+    #[test]
     fn missing_gain_has_no_cap_or_numeric_reading() {
         let strip = Strip {
             show_meter: true,
@@ -230,13 +320,25 @@ mod tests {
         };
         let g = StripSurface::new(Rect::new(0.0, 0.0, 180.0, 640.0));
         let mut s = Scene::new();
-        append(&mut s, g, &strip, &MeterConfig::default());
+        append(
+            &mut s,
+            g,
+            &strip,
+            &MeterConfig::default(),
+            &ConsoleAppearance::default(),
+        );
         let count = s.len();
         assert_eq!(labels(g, &strip).len(), 1);
         let mut live = strip;
         live.gain_db = Some(0.0);
         let mut s = Scene::new();
-        append(&mut s, g, &live, &MeterConfig::default());
+        append(
+            &mut s,
+            g,
+            &live,
+            &MeterConfig::default(),
+            &ConsoleAppearance::default(),
+        );
         assert_eq!(s.len(), count + 3);
         assert!(s.validate());
     }

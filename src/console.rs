@@ -8,7 +8,9 @@ use crate::{
 use serde::{Deserialize, Serialize};
 
 mod surface;
-pub use surface::{gain_fraction, gain_from_fraction, ControlLocation, StripSurface};
+pub use surface::{
+    gain_fraction, gain_from_fraction, ConsoleAppearance, ControlLocation, StripSurface,
+};
 
 /// Meter face variant. Both display caller-provided dB, not synthesized VU data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -194,10 +196,28 @@ impl Console {
     /// # Errors
     /// Invalid measurements/configuration fail before the scene is modified.
     pub fn append(&self, scene: &mut Scene, b: Rect) -> Result<(), ViewError> {
+        self.append_with_appearance(scene, b, &ConsoleAppearance::default())
+    }
+    /// Paint with host-owned console material tokens without changing the snapshot.
+    /// # Errors
+    /// Invalid geometry, measurements or appearance fail before modifying the scene.
+    pub fn append_with_appearance(
+        &self,
+        scene: &mut Scene,
+        b: Rect,
+        appearance: &ConsoleAppearance,
+    ) -> Result<(), ViewError> {
+        appearance.validate()?;
         let cells = self.cells(b)?;
         if self.physical_surface(b) {
             for (strip, cell) in self.strips.iter().zip(cells) {
-                surface::append(scene, StripSurface::new(cell), strip, &self.meter);
+                surface::append(
+                    scene,
+                    StripSurface::new(cell),
+                    strip,
+                    &self.meter,
+                    appearance,
+                );
             }
             return Ok(());
         }
@@ -641,6 +661,28 @@ mod tests {
         assert!(!p.physical_surface(Rect::new(0.0, 0.0, 400.0, 100.0)));
         assert!(!p.physical_surface(Rect::new(0.0, 0.0, 32.0, 640.0)));
         assert!(p.physical_surface(Rect::new(0.0, 0.0, 160.0, 640.0)));
+    }
+    #[test]
+    fn material_changes_are_atomic_and_preserve_labels() {
+        let p = panel(MeterStyle::Led);
+        let bounds = Rect::new(0.0, 0.0, 180.0, 640.0);
+        let mut flat = Scene::new();
+        let mut studio = Scene::new();
+        p.append_with_appearance(&mut flat, bounds, &ConsoleAppearance::flat())
+            .unwrap();
+        p.append(&mut studio, bounds).unwrap();
+        assert!(flat.validate());
+        assert!(studio.validate());
+        assert!(flat.len() < studio.len());
+        let identity = StripSurface::new(bounds).identity;
+        assert_eq!(p.labels(bounds).unwrap()[0].bounds, identity);
+        let mut invalid = ConsoleAppearance::default();
+        invalid.gloss = f32::INFINITY;
+        let previous = flat.len();
+        assert!(p
+            .append_with_appearance(&mut flat, bounds, &invalid)
+            .is_err());
+        assert_eq!(flat.len(), previous);
     }
     #[test]
     fn nan_is_atomic_and_missing_is_not_silence() {

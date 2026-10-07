@@ -12,12 +12,30 @@ physical scale, and own all interaction. `gain_fraction`/`gain_from_fraction`
 share one display/input taper. A missing gain has an empty rail, never a fake cap.
 Peak meters remain peak dBFS, not calibrated RMS VU measurements.
 
+`Console::append_with_appearance` accepts a separate host-owned
+`ConsoleAppearance`: semantic face/cap/slot/identity/marking roles, bounded local
+gloss/grain, hardware details and cast shadows. `ConsoleAppearance::flat()` removes
+hardware ornament and shadows without changing the control positions or meter
+semantics. Disable global renderer gloss/grain too for a fully flat wGPU finish.
+The existing host `Theme` supplies all colors; there is no duplicated palette.
+Appearance is validated before the scene changes. It is not part of a DAW's
+measurement snapshot, so the renderer can change themes independently of audio.
+
+The default procedural studio finish needs no asset downloads. Pedalkernel
+filmstrips/backplates can be host-owned optional packs, but are not bundled in this
+MIT/Apache library. Check each asset's provenance; imported models may carry
+different licenses. Upload/decode once, not per meter update. A 128×16384 RGBA knob
+strip costs 8 MiB decoded; its 256×32768 variant costs 32 MiB. Choose atlases within
+the device's maximum texture dimension or tile/extract frames first. File size is
+not GPU memory size, and a desktop filmstrip is not automatically TV-safe.
+
 The first pass uses themeable procedural geometry, no baked image dependency or
 3D runtime. It can be rendered into a cached texture with the existing offscreen
 renderer; live needles, lamps and caps remain separate primitives. A true mesh
 renderer and asset-baking pipeline are not implemented here.
 
 Preview: `cargo run --release --example offscreen -- --console --output console.ppm`.
+Add `--flat` to compare material finishes using the exact same layout and values.
 This geometry-only preview uses explicit demo values, not studio telemetry. Hosts
 draw the channel identity/value glyphs from `Console::labels` with their existing
 text renderer. Never substitute those demo levels for missing live readings.
