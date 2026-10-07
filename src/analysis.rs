@@ -35,9 +35,9 @@ pub struct Field {
 
 /// How the per-vertex values are obtained.
 ///
-/// Closed forms are evaluated while the mesh is baked, off the render loop, so
-/// painting costs nothing per frame. A solved field will arrive as sampled data
-/// and join this enum without the shader or the vertex format changing.
+/// Producers supply solved or analytical data as vertex samples. Legacy
+/// illustrative sources are evaluated while the mesh is baked, off the render
+/// loop. Both share the scalar shader buffer without moving solver math here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum FieldSource {
