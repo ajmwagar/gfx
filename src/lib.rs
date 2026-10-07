@@ -9,6 +9,7 @@
 //! animated control surfaces without becoming an application framework.
 
 pub mod attention;
+pub mod analysis;
 pub mod boids;
 mod clock;
 mod color;

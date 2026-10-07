@@ -223,3 +223,27 @@ quantitative mode bypasses scan/lighting so a value keeps its palette color.
 The shader accepts normalized finite scalars, not engineering formulas or solver
 claims. Keep units, geometry binding, provenance, and legends in the host.
 Canvas's `canvas-model-host` is one consumer; windowing and STL parsing stay there.
+
+### Analysis fields
+
+`fpl_gfx::analysis` owns the common scalar-field interchange and presentation
+validation. Geometry and engineering calculations remain in their owning tools
+(e.g. Transmog geometry and optional Black Book analysis); gfx has no solver or
+private-repository dependency.
+
+`FieldSource::VertexSamples` binds one finite physical value to every exact,
+ordered model-space vertex. It carries units plus `AnalysisProvenance` declaring
+finite-element, closed-form or measurement method, producer, model assumptions
+and boundary conditions. Import refuses mismatched geometry, missing units,
+invalid ranges, incomplete metadata and non-finite values. `normalized_values`
+returns GPU-ready palette coordinates after validation; full finite f32 ranges
+and narrow nonzero ranges remain usable. `summary` reports the actual extrema
+and counts outside the palette range so clipping stays visible. `compare`
+computes maximum/RMS differences only at common vertices with identical quantity
+and units; it performs no unit conversion or physical qualification.
+
+Canvas model-host re-exports these types to preserve its existing field JSON and
+calls this shared validation/normalization when baking an STL. Other hosts can
+use the same module without wgpu (`default-features = false`). Legacy gradient,
+radial and point-heat sources remain explicitly illustrative: `provenance()`
+returns `None` for them. They must not be presented as solved physics.
