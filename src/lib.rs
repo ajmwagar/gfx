@@ -66,3 +66,6 @@ pub use surface::{
     SURFACE_DESCRIPTOR_VERSION,
 };
 pub use theme::{MaterialTheme, MotionTheme, ShapeTheme, Theme, ThemeError, ThemeRole};
+
+pub mod lovr;
+pub mod symbols;
