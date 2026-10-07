@@ -9,6 +9,7 @@
 //! animated control surfaces without becoming an application framework.
 
 mod clock;
+pub mod boids;
 mod color;
 pub mod signals;
 pub mod topology;
