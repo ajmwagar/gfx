@@ -40,6 +40,10 @@ pub fn shader(name: &str) -> Option<ShaderSource> {
             vertex: "unlit",
             fragment: include_str!("lovr/portal-cache.frag"),
         },
+        "comfort-vignette" => ShaderSource {
+            vertex: "unlit",
+            fragment: include_str!("lovr/comfort-vignette.frag"),
+        },
         _ => return None,
     })
 }
