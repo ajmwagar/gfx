@@ -271,6 +271,16 @@ pub struct PianoViewport {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "view", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SignalFrame {
+    /// Bounded project-first task tiles, selected by the caller.
+    TaskDeck {
+        /// Owner-authored task metadata and explicit freshness.
+        panel: crate::panels::TaskDeck,
+    },
+    /// Editorial title, excerpt and source label.
+    Brief {
+        /// Owner-authored bounded text.
+        panel: crate::panels::Brief,
+    },
     /// Symbolic owner-observed agent attention; no provider parsing or control.
     Attention {
         /// Bounded counts and explicit freshness.
@@ -333,6 +343,8 @@ impl SignalFrame {
     /// Rejects invalid topology data or geometry.
     pub fn labels(&self, bounds: Rect) -> Result<Vec<crate::topology::Label>, ViewError> {
         match self {
+            Self::TaskDeck { panel } => panel.labels(bounds),
+            Self::Brief { panel } => panel.labels(bounds),
             Self::Attention { panel } => panel.labels(bounds),
             Self::Console { panel } => panel.labels(bounds),
             Self::Topology { graph } => graph.labels(bounds).map_err(|_| ViewError),
@@ -345,6 +357,8 @@ impl SignalFrame {
     /// Returns `ViewError` for invalid payloads or view geometry.
     pub fn append(&self, scene: &mut Scene, bounds: Rect) -> Result<(), ViewError> {
         match self {
+            Self::TaskDeck { panel } => panel.append(scene, bounds),
+            Self::Brief { panel } => panel.append(scene, bounds),
             Self::Attention { panel } => panel.append(scene, bounds),
             Self::Console { panel } => panel.append(scene, bounds),
             Self::Topology { graph } => graph.append(scene, bounds).map_err(|_| ViewError),

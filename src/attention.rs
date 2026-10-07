@@ -82,6 +82,23 @@ impl Attention {
     /// Rejects invalid bounds or excessive counts before modifying the scene.
     pub fn append(&self, scene: &mut Scene, bounds: Rect) -> Result<(), ViewError> {
         let cells = self.cells(bounds)?;
+        for (i, c) in cells.iter().enumerate() {
+            let r = c.width.min(c.height) * 0.21;
+            Self::append_symbol(
+                scene,
+                Rect::new(
+                    c.x + c.width * 0.5 - r,
+                    c.y + c.height * 0.34 - r,
+                    r * 2.0,
+                    r * 2.0,
+                ),
+                i,
+                self.role(i),
+            );
+        }
+        Ok(())
+    }
+    pub(crate) fn append_symbol(scene: &mut Scene, bounds: Rect, index: usize, role: ThemeRole) {
         let paths: &[&[[f32; 2]]] = &[
             &[
                 [-1., -0.7],
@@ -122,20 +139,17 @@ impl Attention {
                 [0.8, -0.5],
             ],
         ];
-        for (i, c) in cells.iter().enumerate() {
-            let r = c.width.min(c.height) * 0.21;
-            let x = c.x + c.width * 0.5;
-            let y = c.y + c.height * 0.34;
-            for p in paths[i].windows(2) {
-                scene.push(Primitive::line(
-                    [x + p[0][0] * r, y + p[0][1] * r],
-                    [x + p[1][0] * r, y + p[1][1] * r],
-                    (r * 0.09).max(0.01),
-                    self.role(i),
-                ));
-            }
+        let r = bounds.width.min(bounds.height) * 0.5;
+        let x = bounds.x + bounds.width * 0.5;
+        let y = bounds.y + bounds.height * 0.5;
+        for p in paths[index].windows(2) {
+            scene.push(Primitive::line(
+                [x + p[0][0] * r, y + p[0][1] * r],
+                [x + p[1][0] * r, y + p[1][1] * r],
+                (r * 0.09).max(0.01),
+                role,
+            ));
         }
-        Ok(())
     }
     /// Labels use the same layout as the symbols; hosts own glyph rendering.
     /// # Errors
