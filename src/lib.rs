@@ -10,6 +10,7 @@
 
 mod clock;
 pub mod boids;
+pub mod reactor;
 mod color;
 pub mod signals;
 pub mod topology;
