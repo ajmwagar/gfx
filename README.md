@@ -213,3 +213,13 @@ Licensed under either of:
 - MIT License ([LICENSE-MIT](LICENSE-MIT))
 
 at your option.
+
+### Mesh holograms and scalar fields
+
+`gfx::mesh` owns the shared WGSL, packed `Vertex::layout()`, `Uniforms`, and
+`Colormap` contract. Hosts supply geometry, rigid transforms, world-space eye,
+GPU pipelines, and an sRGB target. Holograms use camera-relative rim lighting;
+quantitative mode bypasses scan/lighting so a value keeps its palette color.
+The shader accepts normalized finite scalars, not engineering formulas or solver
+claims. Keep units, geometry binding, provenance, and legends in the host.
+Canvas's `canvas-model-host` is one consumer; windowing and STL parsing stay there.

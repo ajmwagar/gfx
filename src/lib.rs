@@ -19,6 +19,7 @@ mod geometry;
 #[cfg(feature = "wgpu")]
 mod globe;
 pub mod media;
+pub mod mesh;
 pub mod motion;
 mod orbit;
 mod orientation;
