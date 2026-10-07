@@ -18,6 +18,10 @@ pub struct Flock {
     scratch: Vec<Bird>,
     aspect: f32,
     shark: Option<Bird>,
+    prey: usize,
+    retarget_in: f32,
+    bite_remaining: f32,
+    catches: u32,
 }
 impl Flock {
     /// Seed a deterministic flock in a toroidal, aspect-correct world.
@@ -49,6 +53,10 @@ impl Flock {
             birds,
             aspect,
             shark: None,
+            prey: 0,
+            retarget_in: 0.0,
+            bite_remaining: 0.0,
+            catches: 0,
         })
     }
     /// Enable a predator; school members react to its actual position.
@@ -73,26 +81,39 @@ impl Flock {
             return Err("Invalid flock timestep");
         }
         self.scratch.clone_from(&self.birds);
+        self.bite_remaining = (self.bite_remaining - dt).max(0.0);
         if let Some(shark) = &mut self.shark {
-            // Pursue the nearest real fish, not a scripted orbit.
-            let prey = self
-                .scratch
-                .iter()
-                .min_by(|a, b| {
-                    let distance = |bird: &Bird| {
-                        wrap_delta(bird.x - shark.x, self.aspect)
-                            .hypot(wrap_delta(bird.y - shark.y, 1.0))
-                    };
-                    distance(a).total_cmp(&distance(b))
-                })
-                .ok_or("Empty school")?;
-            let dx = wrap_delta(prey.x - shark.x, self.aspect);
-            let dy = wrap_delta(prey.y - shark.y, 1.0);
+            // Sticky target, straggler preference, and bounded intercept prediction.
+            self.retarget_in -= dt;
+            if self.retarget_in <= 0.0 {
+                let score = |index: usize| {
+                    let fish = self.scratch[index];
+                    let neighbours = self
+                        .scratch
+                        .iter()
+                        .filter(|other| (other.x - fish.x).hypot(other.y - fish.y) < 0.12)
+                        .count();
+                    (fish.x - shark.x).hypot(fish.y - shark.y) * (1.0 + neighbours as f32 * 0.06)
+                };
+                let best = (0..self.scratch.len())
+                    .min_by(|a, b| score(*a).total_cmp(&score(*b)))
+                    .ok_or("Empty school")?;
+                if self.retarget_in <= -dt || score(best) < score(self.prey) * 0.65 {
+                    self.prey = best;
+                }
+                self.retarget_in = 0.8;
+            }
+            let prey = self.scratch[self.prey];
+            let lead = ((prey.x - shark.x).hypot(prey.y - shark.y) / 0.24).clamp(0.0, 1.2);
+            let dx = (prey.x + prey.vx * lead).clamp(0.11, self.aspect - 0.11) - shark.x;
+            let dy = (prey.y + prey.vy * lead).clamp(0.11, 0.89) - shark.y;
             let distance = dx.hypot(dy).max(0.001);
-            shark.vx += (dx / distance * 0.11 - shark.vx) * dt * 1.4;
-            shark.vy += (dy / distance * 0.11 - shark.vy) * dt * 1.4;
-            shark.x = (shark.x + shark.vx * dt).rem_euclid(self.aspect);
-            shark.y = (shark.y + shark.vy * dt).rem_euclid(1.0);
+            let speed = if distance < 0.2 { 0.32 } else { 0.24 };
+            shark.vx += (dx / distance * speed - shark.vx) * dt * 2.5;
+            shark.vy += (dy / distance * speed - shark.vy) * dt * 2.5;
+            shark.x += shark.vx * dt;
+            shark.y += shark.vy * dt;
+            contain(shark, self.aspect, 0.11);
         }
         for (i, bird) in self.birds.iter_mut().enumerate() {
             let original = self.scratch[i];
@@ -102,8 +123,16 @@ impl Flock {
                 if i == j {
                     continue;
                 }
-                let dx = wrap_delta(other.x - original.x, self.aspect);
-                let dy = wrap_delta(other.y - original.y, 1.0);
+                let dx = if self.shark.is_some() {
+                    other.x - original.x
+                } else {
+                    wrap_delta(other.x - original.x, self.aspect)
+                };
+                let dy = if self.shark.is_some() {
+                    other.y - original.y
+                } else {
+                    wrap_delta(other.y - original.y, 1.0)
+                };
                 let distance2 = dx * dx + dy * dy;
                 if distance2 < 0.18 * 0.18 {
                     neighbours += 1.0;
@@ -127,8 +156,8 @@ impl Flock {
                 (0.0, 0.0)
             };
             if let Some(shark) = self.shark {
-                let dx = wrap_delta(original.x - shark.x, self.aspect);
-                let dy = wrap_delta(original.y - shark.y, 1.0);
+                let dx = original.x - shark.x;
+                let dy = original.y - shark.y;
                 let distance = dx.hypot(dy).max(0.001);
                 if distance < 0.3 {
                     let panic = (1.0 - distance / 0.3) * 0.8;
@@ -143,10 +172,42 @@ impl Flock {
             let scale = speed.clamp(0.045, 0.14) / speed;
             bird.vx *= scale;
             bird.vy *= scale;
-            bird.x = (original.x + bird.vx * dt).rem_euclid(self.aspect);
-            bird.y = (original.y + bird.vy * dt).rem_euclid(1.0);
+            bird.x = original.x + bird.vx * dt;
+            bird.y = original.y + bird.vy * dt;
+            if self.shark.is_some() {
+                contain(bird, self.aspect, 0.018);
+            } else {
+                bird.x = bird.x.rem_euclid(self.aspect);
+                bird.y = bird.y.rem_euclid(1.0);
+            }
+        }
+        if let Some(shark) = self.shark {
+            let speed = shark.vx.hypot(shark.vy).max(0.001);
+            let mouth = [
+                shark.x + shark.vx / speed * 0.09,
+                shark.y + shark.vy / speed * 0.09,
+            ];
+            if self.bite_remaining == 0.0 {
+                if let Some(fish) = self
+                    .birds
+                    .iter_mut()
+                    .find(|fish| (fish.x - mouth[0]).hypot(fish.y - mouth[1]) < 0.032)
+                {
+                    self.bite_remaining = 0.65;
+                    self.catches = self.catches.saturating_add(1);
+                    // Replenish on the opposite side, preserving a bounded school.
+                    fish.x = self.aspect - shark.x;
+                    fish.y = 1.0 - shark.y;
+                    contain(fish, self.aspect, 0.018);
+                    self.retarget_in = 0.0;
+                }
+            }
         }
         Ok(())
+    }
+    /// Brief catch feedback; the host owns its overlay and accessibility policy.
+    pub fn catch_flash(&self) -> f32 {
+        ((self.bite_remaining - 0.4) / 0.25).clamp(0.0, 1.0)
     }
     /// Append two oriented, themeable strokes per bird; no raster allocation.
     pub fn append(&self, scene: &mut Scene, bounds: Rect, ink: ThemeRole) {
@@ -171,6 +232,7 @@ impl Flock {
             }
         }
         if let Some(shark) = self.shark {
+            let size = size * 3.0;
             let center = [
                 bounds.x + shark.x / self.aspect * bounds.width,
                 bounds.y + shark.y * bounds.height,
@@ -184,8 +246,13 @@ impl Flock {
                 ]
             };
             // Distinct shark silhouette: pointed head, broad body, dorsal fin and forked tail.
+            let jaw = if self.bite_remaining > 0.0 {
+                (self.bite_remaining / 0.65 * std::f32::consts::PI).sin() * 1.3
+            } else {
+                0.0
+            };
             let shape = [
-                (5.0, 0.0),
+                (5.0, -jaw),
                 (1.0, -1.5),
                 (-1.0, -1.2),
                 (-3.0, -3.0),
@@ -194,7 +261,7 @@ impl Flock {
                 (-1.0, 1.2),
                 (0.0, 3.0),
                 (1.0, 1.5),
-                (5.0, 0.0),
+                (5.0, jaw),
             ];
             for pair in shape.windows(2) {
                 scene.push(Primitive::line(
@@ -204,11 +271,40 @@ impl Flock {
                     ThemeRole::Text,
                 ));
             }
+            if jaw > 0.0 {
+                for side in [-1.0, 1.0] {
+                    scene.push(Primitive::line(
+                        point(5.0, side * jaw),
+                        point(3.0, 0.0),
+                        size * 0.22,
+                        ThemeRole::Text,
+                    ));
+                }
+            }
         }
     }
 }
 fn wrap_delta(delta: f32, extent: f32) -> f32 {
     (delta + extent * 0.5).rem_euclid(extent) - extent * 0.5
+}
+
+fn contain(bird: &mut Bird, aspect: f32, margin: f32) {
+    if bird.x < margin {
+        bird.x = margin;
+        bird.vx = bird.vx.abs();
+    }
+    if bird.x > aspect - margin {
+        bird.x = aspect - margin;
+        bird.vx = -bird.vx.abs();
+    }
+    if bird.y < margin {
+        bird.y = margin;
+        bird.vy = bird.vy.abs();
+    }
+    if bird.y > 1.0 - margin {
+        bird.y = 1.0 - margin;
+        bird.vy = -bird.vy.abs();
+    }
 }
 
 #[cfg(test)]
@@ -284,19 +380,70 @@ mod tests {
             Rect::new(0.0, 0.0, 1920.0, 1080.0),
             ThemeRole::Primary,
         );
-        assert_eq!(scene.iter().count(), 137);
+        assert!((137..=139).contains(&scene.iter().count()));
+        assert!(aquarium
+            .birds
+            .iter()
+            .all(|fish| (0.018..=aquarium.aspect - 0.018).contains(&fish.x)
+                && (0.018..=0.982).contains(&fish.y)));
+        assert!((0.11..=aquarium.aspect - 0.11).contains(&shark.x));
     }
     #[test]
     fn nearby_fish_turn_away_from_predator() {
-        let mut hunted = Flock::aquarium(1,1.0).unwrap();
-        let mut safe = Flock::new(1,1.0).unwrap();
-        let fish = Bird { x:0.55,y:0.5,vx:0.0,vy:0.09 };
-        hunted.birds[0]=fish;
-        safe.birds[0]=fish;
-        hunted.shark=Some(Bird { x:0.5,y:0.5,vx:0.0,vy:0.0 });
+        let mut hunted = Flock::aquarium(1, 1.0).unwrap();
+        let mut safe = Flock::new(1, 1.0).unwrap();
+        let fish = Bird {
+            x: 0.55,
+            y: 0.5,
+            vx: 0.0,
+            vy: 0.09,
+        };
+        hunted.birds[0] = fish;
+        safe.birds[0] = fish;
+        hunted.shark = Some(Bird {
+            x: 0.5,
+            y: 0.5,
+            vx: 0.0,
+            vy: 0.0,
+        });
         hunted.step(0.1).unwrap();
         safe.step(0.1).unwrap();
         assert!(hunted.birds[0].vx > safe.birds[0].vx);
         assert!(hunted.shark.unwrap().vx > 0.0);
+    }
+    #[test]
+    fn catch_chomps_flashes_and_replenishes_without_unbounded_growth() {
+        let mut tank = Flock::aquarium(1, 1.0).unwrap();
+        tank.shark = Some(Bird {
+            x: 0.4,
+            y: 0.5,
+            vx: 0.24,
+            vy: 0.0,
+        });
+        tank.birds[0] = Bird {
+            x: 0.49,
+            y: 0.5,
+            vx: 0.09,
+            vy: 0.0,
+        };
+        tank.step(0.0).unwrap();
+        assert_eq!(tank.catches, 1);
+        assert_eq!(tank.birds.len(), 1);
+        assert!((tank.catch_flash() - 1.0).abs() < 0.00001);
+        assert!(tank.birds[0].x > 0.5);
+        for _ in 0..4 {
+            tank.step(0.1).unwrap();
+        }
+        assert_eq!(tank.catch_flash(), 0.0);
+        let mut edge = Bird {
+            x: -1.0,
+            y: 2.0,
+            vx: -0.24,
+            vy: 0.24,
+        };
+        contain(&mut edge, 1.0, 0.11);
+        assert_eq!(edge.x, 0.11);
+        assert_eq!(edge.y, 0.89);
+        assert!(edge.vx > 0.0 && edge.vy < 0.0);
     }
 }
