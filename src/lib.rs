@@ -14,6 +14,7 @@ pub mod signals;
 pub mod topology;
 pub mod patchbay;
 pub mod console;
+pub mod media;
 #[cfg(feature = "wgpu")]
 mod frame;
 mod geometry;
