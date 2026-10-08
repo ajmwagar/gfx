@@ -16,6 +16,7 @@ struct FrameUniforms {
     land: vec4<f32>,
     boundary: vec4<f32>,
     atmosphere: vec4<f32>,
+    raster_bounds: vec4<f32>,
     viewport: vec2<f32>,
     _padding: vec2<f32>,
 };
@@ -44,11 +45,20 @@ fn earth_vertex(input: EarthInput) -> EarthOutput {
 
 @fragment
 fn earth_fragment(input: EarthOutput) -> @location(0) vec4<f32> {
+    let longitude = input.geo_degrees.y;
+    let latitude = input.geo_degrees.x;
+    let inside_raster = longitude >= frame.raster_bounds.x
+        && longitude <= frame.raster_bounds.z
+        && latitude >= frame.raster_bounds.y
+        && latitude <= frame.raster_bounds.w;
     let raster_uv = vec2<f32>(
-        (input.geo_degrees.y + 180.0) / 360.0,
-        (90.0 - input.geo_degrees.x) / 180.0
+        (longitude - frame.raster_bounds.x) / (frame.raster_bounds.z - frame.raster_bounds.x),
+        (frame.raster_bounds.w - latitude) / (frame.raster_bounds.w - frame.raster_bounds.y)
     );
-    let raster = textureSample(earth_raster, earth_sampler, raster_uv);
+    var surface = frame.land;
+    if inside_raster {
+        surface = textureSample(earth_raster, earth_sampler, raster_uv);
+    }
     let latitude_phase = fract((input.geo_degrees.x + 90.0) / 10.0);
     let longitude_phase = fract((input.geo_degrees.y + 180.0) / 10.0);
     let latitude_cell = min(latitude_phase, 1.0 - latitude_phase);
@@ -58,7 +68,7 @@ fn earth_fragment(input: EarthOutput) -> @location(0) vec4<f32> {
     let latitude_line = 1.0 - smoothstep(0.0, latitude_width * 1.5, latitude_cell);
     let longitude_line = 1.0 - smoothstep(0.0, longitude_width * 1.5, longitude_cell);
     let grid = clamp(max(latitude_line, longitude_line), 0.0, 1.0);
-    return mix(raster, frame.boundary, grid * frame.boundary.a * 0.32);
+    return mix(surface, frame.boundary, grid * frame.boundary.a * 0.32);
 }
 
 struct PointInput {
@@ -109,6 +119,7 @@ struct FrameUniforms {
     land: [f32; 4],
     boundary: [f32; 4],
     atmosphere: [f32; 4],
+    raster_bounds: [f32; 4],
     viewport: [f32; 2],
     padding: [f32; 2],
 }
@@ -208,6 +219,9 @@ pub enum GlobeRenderError {
     /// Raster dimensions or tightly packed RGBA payload are invalid.
     #[error("globe raster dimensions or RGBA payload are invalid")]
     InvalidRaster,
+    /// Regional raster bounds must be finite, ordered WGS84 degrees.
+    #[error("globe regional raster bounds are invalid")]
+    InvalidRasterBounds,
     /// Point count cannot be represented by WGPU draw arguments.
     #[error("globe point count exceeds u32 capacity")]
     TooManyPoints,
@@ -236,6 +250,7 @@ pub struct GlobeRenderer {
     bind_group: wgpu::BindGroup,
     raster_texture: wgpu::Texture,
     raster_sampler: wgpu::Sampler,
+    raster_bounds: [f32; 4],
     uniform_buffer: wgpu::Buffer,
     earth_vertex_buffer: wgpu::Buffer,
     earth_index_buffer: wgpu::Buffer,
@@ -320,7 +335,7 @@ impl GlobeRenderer {
         let raster_texture = raster_texture(device, 1, 1);
         let raster_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("fpl-gfx globe raster sampler"),
-            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
@@ -365,6 +380,7 @@ impl GlobeRenderer {
             bind_group,
             raster_texture,
             raster_sampler,
+            raster_bounds: [-180.0, -90.0, 180.0, 90.0],
             uniform_buffer,
             earth_vertex_buffer,
             earth_index_buffer,
@@ -396,6 +412,30 @@ impl GlobeRenderer {
         height: u32,
         rgba: &[u8],
     ) -> Result<(), GlobeRenderError> {
+        self.set_raster_region_rgba8(
+            device,
+            queue,
+            width,
+            height,
+            [-180.0, -90.0, 180.0, 90.0],
+            rgba,
+        )
+    }
+
+    /// Replaces imagery covering one non-antimeridian WGS84 region.
+    ///
+    /// Bounds are `[west, south, east, north]` in degrees. Pixels are expected
+    /// in north-up order, matching ordinary WMS and image conventions.
+    pub fn set_raster_region_rgba8(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+        bounds_degrees: [f64; 4],
+        rgba: &[u8],
+    ) -> Result<(), GlobeRenderError> {
+        validate_raster_bounds(bounds_degrees)?;
         let row_bytes = width.checked_mul(4);
         let expected = row_bytes
             .and_then(|row| row.checked_mul(height))
@@ -422,6 +462,7 @@ impl GlobeRenderer {
             &self.raster_sampler,
         );
         self.raster_texture = texture;
+        self.raster_bounds = bounds_degrees.map(|value| value as f32);
         Ok(())
     }
 
@@ -487,6 +528,7 @@ impl GlobeRenderer {
             land: frame.style.land,
             boundary: frame.style.boundary,
             atmosphere: frame.style.atmosphere,
+            raster_bounds: self.raster_bounds,
             // WGPU texture limits are far below the first integer not exactly
             // representable by f32, so viewport dimensions remain exact.
             #[allow(clippy::cast_precision_loss)]
@@ -602,6 +644,21 @@ impl GlobeRenderer {
         }
         self.last_origin = Some(origin);
     }
+}
+
+fn validate_raster_bounds(bounds: [f64; 4]) -> Result<(), GlobeRenderError> {
+    let [west, south, east, north] = bounds;
+    if bounds.iter().any(|value| !value.is_finite())
+        || !(-180.0..=180.0).contains(&west)
+        || !(-180.0..=180.0).contains(&east)
+        || !(-90.0..=90.0).contains(&south)
+        || !(-90.0..=90.0).contains(&north)
+        || west >= east
+        || south >= north
+    {
+        return Err(GlobeRenderError::InvalidRasterBounds);
+    }
+    Ok(())
 }
 
 fn raster_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Texture {
@@ -786,9 +843,18 @@ mod tests {
 
     #[test]
     fn gpu_struct_layouts_match_wgsl_contract() {
-        assert_eq!(std::mem::size_of::<FrameUniforms>(), 144);
+        assert_eq!(std::mem::size_of::<FrameUniforms>(), 160);
         assert_eq!(std::mem::size_of::<EarthVertex>(), 20);
         assert_eq!(std::mem::size_of::<PointInstance>(), 32);
+    }
+
+    #[test]
+    fn regional_raster_bounds_are_ordered_and_bounded() {
+        assert!(validate_raster_bounds([-123.0, 47.0, -122.0, 48.0]).is_ok());
+        assert!(validate_raster_bounds([-122.0, 47.0, -123.0, 48.0]).is_err());
+        assert!(validate_raster_bounds([-123.0, 48.0, -122.0, 47.0]).is_err());
+        assert!(validate_raster_bounds([-181.0, 47.0, -122.0, 48.0]).is_err());
+        assert!(validate_raster_bounds([f64::NAN, 47.0, -122.0, 48.0]).is_err());
     }
 
     #[test]
