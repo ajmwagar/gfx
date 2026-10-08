@@ -160,6 +160,32 @@ allowing each application to retain its own state and domain components.
 Theme colors are linear RGBA. `Color::from_srgb8` converts authored sRGB colors
 correctly for an sRGB render target.
 
+### Global appearance without a compositor dependency
+
+One host-owned `Theme` is the palette for all gfx views in that host. Pass that
+same snapshot to rendering; do not keep a palette per widget or introduce a
+process-global mutable singleton. `Theme::replace(snapshot)` validates the
+complete update before mutation, so malformed imported appearance never leaves
+half-updated chrome. The existing serialized `Theme` is sufficient for IPC;
+gfx does not subscribe to Canvas, manage sockets, or persist appearance.
+
+Canvas already maps its resolved `VisualTheme` through
+`canvas-widgets::live::gfx_theme::apply`, which calls Coherence's adapter.
+That host-side boundary carries imported palettes and Lua overrides. Independent
+apps can supply the same semantic snapshot, their own theme, or opt into
+`Theme::undergrowth()` for flat forest-grey surfaces, moss accents, compact
+corners, and readable warm ink. Existing defaults remain unchanged. A Canvas
+snapshot takes precedence over the fallback; do not reapply the preset each
+frame and erase the user's palette.
+
+```rust
+use fpl_gfx::Theme;
+let mut appearance = Theme::undergrowth();
+// On an appearance change, accept a complete resolved host snapshot.
+let incoming = Theme::studio_dark();
+appearance.replace(incoming).unwrap();
+```
+
 Zero-gloss, zero-grain flat fills preserve their authored color exactly; there
 is no implicit material darkening. Explicit primitive or theme gloss retains
 the established directional lighting response. The GPU regression can be run

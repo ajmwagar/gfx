@@ -148,6 +148,53 @@ impl Theme {
         }
     }
 
+    /// A restrained damp-forest chrome preset for fungOS and independent hosts.
+    ///
+    /// This is an opt-in fallback, not a copy of Canvas's live palette. Hosts
+    /// receiving Canvas appearance should use its existing Coherence adapter.
+    pub fn undergrowth() -> Self {
+        let srgb = Color::from_srgb8;
+        let mut theme = Self::studio_dark();
+        theme.colors = [
+            srgb(20, 28, 24, 255),
+            srgb(32, 40, 35, 255),
+            srgb(44, 54, 47, 255),
+            srgb(16, 23, 19, 255),
+            srgb(229, 234, 221, 255),
+            srgb(160, 173, 157, 255),
+            srgb(172, 195, 127, 255),
+            srgb(150, 178, 162, 255),
+            srgb(139, 191, 132, 255),
+            srgb(224, 185, 112, 255),
+            srgb(225, 136, 121, 255),
+            srgb(110, 160, 111, 255),
+            srgb(224, 185, 112, 255),
+            srgb(74, 88, 76, 255),
+            srgb(0, 0, 0, 170),
+            srgb(229, 234, 221, 210),
+        ];
+        theme.shapes.radius_small = 4.0;
+        theme.shapes.radius_large = 8.0;
+        theme.materials.gloss = 0.0;
+        theme.materials.grain = 0.0;
+        theme.materials.emission = 0.12;
+        theme
+    }
+
+    /// Atomically accepts a complete host-owned palette/token snapshot.
+    ///
+    /// Hosts retain one theme for their views and call this on appearance
+    /// changes, not per frame. No process-global mutable state or transport is
+    /// owned by gfx. Invalid snapshots leave the current theme unchanged.
+    ///
+    /// # Errors
+    /// Returns [`ThemeError`] when the supplied snapshot fails validation.
+    pub fn replace(&mut self, snapshot: Self) -> Result<(), ThemeError> {
+        snapshot.validate()?;
+        *self = snapshot;
+        Ok(())
+    }
+
     /// Returns the color assigned to a semantic role.
     pub const fn color(&self, role: ThemeRole) -> Color {
         self.colors[role.index()]
@@ -219,6 +266,35 @@ pub enum ThemeError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn undergrowth_is_flat_valid_and_round_trips() {
+        let theme = Theme::undergrowth();
+        theme.validate().unwrap();
+        assert_eq!(theme.materials.gloss, 0.0);
+        assert_eq!(theme.materials.grain, 0.0);
+        assert_eq!(
+            theme.color(ThemeRole::Background).to_srgb8(),
+            [20, 28, 24, 255]
+        );
+        assert_eq!(
+            serde_json::from_str::<Theme>(&serde_json::to_string(&theme).unwrap()).unwrap(),
+            theme
+        );
+    }
+
+    #[test]
+    fn replacement_is_atomic_and_reaches_every_semantic_role() {
+        let mut host = Theme::studio_dark();
+        let before = host.clone();
+        let mut bad = Theme::undergrowth();
+        bad.shapes.radius_small = f32::NAN;
+        assert_eq!(host.replace(bad), Err(ThemeError::Token));
+        assert_eq!(host, before);
+        let snapshot = Theme::undergrowth();
+        host.replace(snapshot.clone()).unwrap();
+        assert_eq!(host, snapshot);
+    }
 
     #[test]
     fn default_theme_is_valid_and_round_trips() {
