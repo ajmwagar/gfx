@@ -2,14 +2,16 @@
 precision mediump float;
 uniform samplerExternalOES uFrame;
 uniform int uRegionCount;
+uniform mediump float uPackedAlpha;
 uniform vec4 uBounds[8];
 uniform vec3 uColor[8];
 uniform vec2 uRamp[8];
-varying vec2 vTextureUv;
-varying vec2 vSourceUv;
+varying mediump vec2 vTextureUv;
+varying mediump vec2 vAlphaUv;
+varying mediump vec2 vSourceUv;
 void main() {
     vec3 rgb = texture2D(uFrame, vTextureUv).rgb;
-    float alpha = 1.0;
+    float alpha = uPackedAlpha > 0.5 ? texture2D(uFrame, vAlphaUv).r : 1.0;
     for (int i = 0; i < 8; ++i) {
         if (i < uRegionCount) {
             vec4 r = uBounds[i];

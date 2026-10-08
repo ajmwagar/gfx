@@ -8,6 +8,30 @@ use serde::{Deserialize, Serialize};
 /// Reusable WGSL; entry points `vs_main` and `fs_main`, uniform binding 0/0.
 pub const SHADER: &str = include_str!("mesh.wgsl");
 
+/// Canonical box wire geometry for displaying the same supplied bounds that
+/// analysis checked. Hosts transform these endpoints into their model frame.
+pub fn wire_box_edges(bounds: [[f32; 3]; 2]) -> Result<[[[f32; 3]; 2]; 12], &'static str> {
+    if bounds.iter().flatten().any(|v| !v.is_finite())
+        || (0..3).any(|i| bounds[0][i] >= bounds[1][i])
+    {
+        return Err("Invalid box display bounds");
+    }
+    let points: [[f32; 3]; 8] = std::array::from_fn(|corner| {
+        std::array::from_fn(|axis| bounds[(corner >> axis) & 1][axis])
+    });
+    let mut edges = [[[0.; 3]; 2]; 12];
+    let mut next = 0;
+    for corner in 0..8 {
+        for axis in 0..3 {
+            if corner & (1 << axis) == 0 {
+                edges[next] = [points[corner], points[corner | (1 << axis)]];
+                next += 1;
+            }
+        }
+    }
+    Ok(edges)
+}
+
 /// Packed mesh vertex: locations 0 position, 1 normal, 2 normalized scalar.
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -81,6 +105,17 @@ impl Colormap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn wire_boxes_have_twelve_unique_axis_edges() {
+        let edges = wire_box_edges([[0.; 3], [1.; 3]]).unwrap();
+        assert_eq!(edges.len(), 12);
+        for [a, b] in edges {
+            assert_eq!((0..3).filter(|i| a[*i] != b[*i]).count(), 1);
+            assert!(a.iter().chain(b.iter()).all(|v| *v == 0. || *v == 1.));
+        }
+        assert!(wire_box_edges([[0.; 3], [f32::NAN; 3]]).is_err());
+        assert!(wire_box_edges([[1.; 3], [0.; 3]]).is_err());
+    }
     #[test]
     fn shader_validates_and_matches_host_abi() {
         let module = naga::front::wgsl::parse_str(SHADER).expect("WGSL parses");
