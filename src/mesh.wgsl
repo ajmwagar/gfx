@@ -3,7 +3,7 @@ struct Uniforms {
     model: mat4x4<f32>,
     color: vec4<f32>,
     params: vec4<f32>,       // time, glow, opacity, line_mode
-    field_params: vec4<f32>, // painted, colormap index, unused, unused
+    field_params: vec4<f32>, // painted, colormap index, illustrative lighting, unused
     eye: vec4<f32>, // world-space eye position
 };
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -94,6 +94,11 @@ fn linear_rgb(c: vec3<f32>) -> vec3<f32> {
         // Quantitative mode is unlit: identical scalar values stay identical
         // at every orientation/time and match the palette legend.
         base = linear_rgb(colormap(input.field, uniforms.field_params.y));
+        // Categorical component colors may opt into shape lighting. Numerical
+        // fields retain the unlit, orientation-invariant quantitative contract.
+        if (uniforms.field_params.z > 0.5) {
+            base *= energy;
+        }
     } else if (uniforms.params.w > 0.5) {
         base = linear_rgb(uniforms.color.rgb) * 1.1;
     }

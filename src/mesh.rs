@@ -48,7 +48,8 @@ pub struct Uniforms {
     pub color: [f32; 4],
     /// Time seconds, glow, hologram opacity (quantitative mode is opaque), wireframe toggle.
     pub params: [f32; 4],
-    /// Quantitative toggle, palette index, two reserved zeros.
+    /// Palette toggle, palette index, illustrative lighting toggle, reserved zero.
+    /// Lighting must remain zero for quantitative fields whose colors encode values.
     pub field_params: [f32; 4],
     /// World-space eye position; last component reserved zero.
     pub eye: [f32; 4],
