@@ -18,10 +18,12 @@ exclude = [".github/"]
 bytemuck = { version = "1.24", features = ["derive"], optional = true }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
+schemars = { version = "1", optional = true }
 wgpu = { version = "27", features = ["wgsl"], optional = true }
 
 [features]
 default = ["wgpu"]
+schema = ["dep:schemars"]
 wgpu = ["dep:bytemuck", "dep:wgpu"]
 
 [dev-dependencies]
