@@ -17,6 +17,16 @@ pub struct ControlState {
 /// Canonical control face for wGPU scenes and native primitive visitors.
 /// Returns `false` without mutating the scene for invalid bounds or shape tokens.
 pub fn control(scene: &mut Scene, bounds: Rect, shapes: ShapeTheme, state: ControlState) -> bool {
+    let Some(face) = control_face(bounds, shapes, state) else {
+        return false;
+    };
+    scene.push(face);
+    true
+}
+
+/// Allocation-free control description for native styling adapters.
+/// Returns `None` for invalid geometry or shape tokens.
+pub fn control_face(bounds: Rect, shapes: ShapeTheme, state: ControlState) -> Option<Primitive> {
     if !bounds.is_valid()
         || bounds.width <= 0.0
         || bounds.height <= 0.0
@@ -27,11 +37,11 @@ pub fn control(scene: &mut Scene, bounds: Rect, shapes: ShapeTheme, state: Contr
         || !shapes.outline_width.is_finite()
         || shapes.outline_width < 0.0
     {
-        return false;
+        return None;
     }
     let emphasis = !state.disabled && (state.focused || state.pressed);
     let active = !state.disabled && state.selected;
-    scene.push(
+    Some(
         Primitive::rounded_rect(
             bounds,
             shapes
@@ -51,8 +61,7 @@ pub fn control(scene: &mut Scene, bounds: Rect, shapes: ShapeTheme, state: Contr
             },
             shapes.outline_width * if emphasis { 2.0 } else { 1.0 },
         ),
-    );
-    true
+    )
 }
 
 /// Continuous top-bar surface shared by every shell renderer.
@@ -115,5 +124,22 @@ mod tests {
             ControlState::default()
         ));
         assert_eq!(scene.iter().count(), 0);
+    }
+    #[test]
+    fn native_face_and_scene_match_with_custom_shape_tokens() {
+        let mut shapes = Theme::default().shapes;
+        shapes.radius_small = 11.0;
+        shapes.outline_width = 1.25;
+        let bounds = Rect::new(0.0, 0.0, 120.0, 44.0);
+        let state = ControlState {
+            focused: true,
+            ..Default::default()
+        };
+        let face = control_face(bounds, shapes, state).unwrap();
+        assert_eq!(face.radius, 11.0);
+        assert_eq!(face.outline_width, 2.5);
+        let mut scene = Scene::default();
+        assert!(control(&mut scene, bounds, shapes, state));
+        assert_eq!(scene.iter().next(), Some(&face));
     }
 }
