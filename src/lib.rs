@@ -9,6 +9,7 @@
 //! animated control surfaces without becoming an application framework.
 
 pub mod attention;
+pub mod chrome;
 pub mod panels;
 pub mod analysis;
 pub mod boids;
