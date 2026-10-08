@@ -109,6 +109,18 @@ pub const GLES_FRAGMENT: &str = include_str!("shaders/video_matte.frag");
 /// over transparent black. Alpha is kept as linear grayscale in the right half.
 /// Color is unpremultiplied in linear light, then encoded back to sRGB.
 pub fn pack_render_rgba(size: [u32; 2], rgba: &[u8]) -> Result<Vec<u8>, &'static str> {
+    pack_rgba(size, rgba, true)
+}
+
+/// Pack straight sRGB PNG/presentation pixels without render unpremultiplication.
+pub fn pack_straight_rgba(size: [u32; 2], rgba: &[u8]) -> Result<Vec<u8>, &'static str> {
+    pack_rgba(size, rgba, false)
+}
+fn pack_rgba(
+    size: [u32; 2],
+    rgba: &[u8],
+    render_premultiplied: bool,
+) -> Result<Vec<u8>, &'static str> {
     let [w, h] = size.map(|v| v as usize);
     if w == 0 || h == 0 || w > 4096 || h > 8192 || rgba.len() != w * h * 4 {
         return Err("Invalid RGBA frame dimensions or byte count");
@@ -118,15 +130,19 @@ pub fn pack_render_rgba(size: [u32; 2], rgba: &[u8]) -> Result<Vec<u8>, &'static
         for x in 0..w {
             let i = (y * w + x) * 4;
             let a = rgba[i + 3];
-            let mut color = crate::Color::from_srgb8(rgba[i], rgba[i + 1], rgba[i + 2], a);
-            if a != 0 {
-                color.r /= color.a;
-                color.g /= color.a;
-                color.b /= color.a;
+            let rgb = if render_premultiplied {
+                let mut color = crate::Color::from_srgb8(rgba[i], rgba[i + 1], rgba[i + 2], a);
+                if a != 0 {
+                    color.r /= color.a;
+                    color.g /= color.a;
+                    color.b /= color.a;
+                } else {
+                    color = crate::Color::TRANSPARENT;
+                }
+                color.to_srgb8()
             } else {
-                color = crate::Color::TRANSPARENT;
-            }
-            let rgb = color.to_srgb8();
+                [rgba[i], rgba[i + 1], rgba[i + 2], a]
+            };
             let c = (y * w * 2 + x) * 4;
             packed[c..c + 4].copy_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
             let alpha = c + w * 4;
@@ -162,6 +178,10 @@ mod tests {
             &[255, 255, 255, 255, 0, 0, 0, 255, 128, 128, 128, 255]
         );
         assert!(pack_render_rgba([3, 2], &pixels).is_err());
+        assert_eq!(
+            &pack_straight_rgba([1, 1], &[188, 0, 0, 128]).unwrap()[..4],
+            &[188, 0, 0, 255]
+        );
     }
     fn matte() -> VideoMatte {
         VideoMatte {
