@@ -1,6 +1,6 @@
 //! Bounded editorial and task panels. Hosts own fonts, state, freshness and I/O.
 use crate::{
-    attention::Attention, signals::ViewError, topology::Label, Primitive, Rect, Scene, ThemeRole,
+    Primitive, Rect, Scene, ThemeRole, attention::Attention, signals::ViewError, topology::Label,
 };
 use serde::{Deserialize, Serialize};
 
@@ -190,6 +190,12 @@ impl TaskState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Task {
+    /// Opaque display identity; not a provider action or authorization token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Bounded owner-derived facts for the expanded presentation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
     /// Project label.
     pub project: String,
     /// Owner-authored task label, not a transcript.
@@ -207,6 +213,89 @@ pub struct TaskDeck {
     pub items: Vec<Task>,
     /// False overrides every tile's state and wait metadata.
     pub fresh: bool,
+    /// Display selection, preserved by identity rather than list position.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected: Option<String>,
+    /// Expand the selected task in the same window, never a modal.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub expanded: bool,
+}
+/// Presentation-only navigation, shared by remote, CLI and desktop hosts.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskNavigation {
+    /// Enter without changing an existing selection.
+    Focus,
+    /// Move to the left grid cell.
+    Left,
+    /// Move to the right grid cell.
+    Right,
+    /// Move to the preceding row.
+    Up,
+    /// Move to the following row.
+    Down,
+    /// Expand the selected task in place.
+    Open,
+    /// Collapse, then clear focus; return false when neither applies.
+    Back,
+}
+impl TaskDeck {
+    /// Apply deterministic navigation; returns false when Back should leave this widget.
+    /// # Errors
+    /// Rejects malformed task decks before changing selection.
+    pub fn navigate(&mut self, action: TaskNavigation) -> Result<bool, ViewError> {
+        self.cells(Rect::new(0., 0., 1000., 600.))?;
+        let current = self
+            .selected
+            .as_ref()
+            .and_then(|id| self.items.iter().position(|i| i.id.as_ref() == Some(id)));
+        if matches!(action, TaskNavigation::Back) {
+            let handled = self.expanded || self.selected.is_some();
+            if self.expanded {
+                self.expanded = false;
+            } else {
+                self.selected = None;
+            }
+            return Ok(handled);
+        }
+        if self.items.is_empty() {
+            return Ok(false);
+        }
+        let index = match (current, action) {
+            (None, _) => 0,
+            (Some(i), TaskNavigation::Left) => {
+                if i % 2 == 1 {
+                    i - 1
+                } else {
+                    i
+                }
+            }
+            (Some(i), TaskNavigation::Right) => {
+                if i % 2 == 0 && i + 1 < self.items.len() {
+                    i + 1
+                } else {
+                    i
+                }
+            }
+            (Some(i), TaskNavigation::Up) => i.saturating_sub(2),
+            (Some(i), TaskNavigation::Down) => {
+                if i + 2 < self.items.len() {
+                    i + 2
+                } else {
+                    i
+                }
+            }
+            (Some(i), _) => i,
+        };
+        let Some(id) = self.items[index].id.clone() else {
+            return Ok(false);
+        };
+        self.selected = Some(id);
+        self.expanded = matches!(action, TaskNavigation::Open) || self.expanded;
+        Ok(current != Some(index)
+            || matches!(action, TaskNavigation::Open | TaskNavigation::Focus)
+            || self.expanded)
+    }
 }
 impl TaskDeck {
     fn cells(&self, b: Rect) -> Result<Vec<Rect>, ViewError> {
@@ -216,11 +305,27 @@ impl TaskDeck {
                 !text_valid(&i.project, 160)
                     || !text_valid(&i.title, 240)
                     || !text_valid(&i.meta, 240)
+                    || i.id.as_ref().is_some_and(|id| {
+                        id.is_empty() || !text_valid(id, 1024) || id.contains('\n')
+                    })
+                    || i.detail
+                        .as_ref()
+                        .is_some_and(|detail| !text_valid(detail, 1600))
             })
+            || self.items.iter().enumerate().any(|(n, i)| {
+                i.id.is_some() && self.items[..n].iter().any(|other| other.id == i.id)
+            })
+            || self
+                .selected
+                .as_ref()
+                .is_some_and(|id| !self.items.iter().any(|i| i.id.as_ref() == Some(id)))
         {
             return Err(ViewError);
         }
         let gap = b.width.min(b.height) * 0.035;
+        if self.expanded && self.selected.is_some() {
+            return Ok(vec![b; 4]);
+        }
         Ok((0_u8..4)
             .map(|i| {
                 Rect::new(
@@ -238,6 +343,9 @@ impl TaskDeck {
     pub fn append(&self, scene: &mut Scene, b: Rect) -> Result<(), ViewError> {
         let cells = self.cells(b)?;
         for (item, c) in self.items.iter().zip(cells) {
+            if self.expanded && self.selected.is_some() && item.id != self.selected {
+                continue;
+            }
             let state = if self.fresh {
                 item.state
             } else {
@@ -248,6 +356,17 @@ impl TaskDeck {
                 c.height * 0.045,
                 ThemeRole::SurfaceRaised,
             ));
+            if item.id.is_some() && item.id == self.selected {
+                let thickness = c.width.min(c.height) * 0.008;
+                for edge in [
+                    Rect::new(c.x, c.y, c.width, thickness),
+                    Rect::new(c.x, c.bottom() - thickness, c.width, thickness),
+                    Rect::new(c.x, c.y, thickness, c.height),
+                    Rect::new(c.right() - thickness, c.y, thickness, c.height),
+                ] {
+                    scene.push(Primitive::rounded_rect(edge, 0., ThemeRole::Secondary));
+                }
+            }
             scene.push(Primitive::rounded_rect(
                 Rect::new(c.x, c.y + c.height * 0.17, c.width * 0.008, c.height * 0.66),
                 c.width * 0.004,
@@ -282,6 +401,9 @@ impl TaskDeck {
             )]);
         }
         for (item, c) in self.items.iter().zip(cells) {
+            if self.expanded && self.selected.is_some() && item.id != self.selected {
+                continue;
+            }
             let state = if self.fresh {
                 item.state
             } else {
@@ -318,6 +440,37 @@ impl TaskDeck {
                 Rect::new(x, c.y + c.height * 0.85, width, c.height * 0.08),
                 ThemeRole::TextMuted,
             ));
+            if self.expanded && self.selected.is_some() {
+                // Keep source facts bounded and withhold live claims when stale.
+                result.truncate(2);
+                let body = if self.fresh {
+                    format!(
+                        "{}\n{}",
+                        item.title,
+                        item.detail
+                            .as_deref()
+                            .unwrap_or("No additional owner detail")
+                    )
+                } else {
+                    format!("{}\nTelemetry stale · current status unknown", item.title)
+                };
+                let line = Rect::new(x, 0., width, c.height * 0.052);
+                let (lines, _) = wrapped(&body, line, 7);
+                let mut y = c.y + c.height * 0.46;
+                for text in lines {
+                    result.push(label(
+                        text,
+                        Rect::new(x, y, width, line.height),
+                        ThemeRole::Text,
+                    ));
+                    y += line.height * 1.08;
+                }
+                result.push(label(
+                    "Back · return to tasks | Read-only · respond in the owning app".into(),
+                    Rect::new(x, c.y + c.height * 0.93, width, c.height * 0.035),
+                    ThemeRole::TextMuted,
+                ));
+            }
         }
         Ok(result)
     }
@@ -326,16 +479,50 @@ impl TaskDeck {
 mod tests {
     use super::*;
     #[test]
+    fn navigation_tracks_identity_and_expands_without_authority() {
+        let mut deck:TaskDeck=serde_json::from_value(serde_json::json!({"items":[
+            {"id":"a","project":"Canvas","title":"Task A","meta":"neo","state":"active","detail":"Owner reports active"},
+            {"id":"b","project":"Bus","title":"Task B","meta":"neo","state":"input"}],"fresh":true})).unwrap();
+        assert!(deck.navigate(TaskNavigation::Focus).unwrap());
+        assert_eq!(deck.selected.as_deref(), Some("a"));
+        assert!(!deck.navigate(TaskNavigation::Left).unwrap());
+        deck.navigate(TaskNavigation::Right).unwrap();
+        deck.navigate(TaskNavigation::Open).unwrap();
+        assert!(deck.expanded);
+        deck.items.reverse();
+        let labels = deck.labels(Rect::new(0., 0., 1200., 800.)).unwrap();
+        assert!(labels.iter().any(|l| l.text == "Bus"));
+        assert!(!labels.iter().any(|l| l.text == "Canvas"));
+        deck.fresh = false;
+        assert!(
+            deck.labels(Rect::new(0., 0., 1200., 800.))
+                .unwrap()
+                .iter()
+                .any(|l| l.text.contains("Telemetry stale"))
+        );
+        assert!(deck.navigate(TaskNavigation::Back).unwrap());
+        assert!(!deck.expanded);
+        assert!(deck.navigate(TaskNavigation::Back).unwrap());
+        assert_eq!(deck.selected, None);
+        assert!(!deck.navigate(TaskNavigation::Back).unwrap());
+        deck.items[1].id = deck.items[0].id.clone();
+        assert!(deck.navigate(TaskNavigation::Open).is_err());
+    }
+    #[test]
     fn task_deck_is_bounded_atomic_and_freshness_safe() {
         let item = Task {
+            id: Some("task-1".into()),
+            detail: None,
             project: "Canvas".into(),
             title: "Shared primitives".into(),
             meta: "seen waiting 4m".into(),
             state: TaskState::Approval,
         };
         let mut deck = TaskDeck {
-            items: vec![item; 4],
+            items: vec![item],
             fresh: true,
+            selected: None,
+            expanded: false,
         };
         let b = Rect::new(0., 0., 1400., 800.);
         let mut scene = Scene::new();
@@ -345,7 +532,7 @@ mod tests {
         let labels = deck.labels(b).unwrap();
         assert!(labels.iter().any(|l| l.text == "Status unknown"));
         assert!(!labels.iter().any(|l| l.text.contains("waiting 4m")));
-        deck.items.push(deck.items[0].clone());
+        deck.items = vec![deck.items[0].clone(); 5];
         let len = scene.len();
         assert!(deck.append(&mut scene, b).is_err());
         assert_eq!(scene.len(), len);
@@ -362,8 +549,10 @@ mod tests {
         let labels = brief.labels(b).unwrap();
         assert!(labels.len() <= 16);
         assert!(labels.last().unwrap().text.contains("Excerpt"));
-        assert!(labels
-            .iter()
-            .all(|l| l.bounds.bottom() <= b.bottom() + 0.01));
+        assert!(
+            labels
+                .iter()
+                .all(|l| l.bounds.bottom() <= b.bottom() + 0.01)
+        );
     }
 }
