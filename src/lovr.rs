@@ -20,6 +20,10 @@ pub struct ShaderSource {
 /// `splats` retains the SplatData storage buffer and instance-index contract.
 pub fn shader(name: &str) -> Option<ShaderSource> {
     Some(match name {
+        "laser-bolt" => ShaderSource {
+            vertex: "unlit",
+            fragment: include_str!("lovr/laser-bolt.frag"),
+        },
         "model" => ShaderSource {
             vertex: "unlit",
             fragment: include_str!("lovr/model.frag"),
