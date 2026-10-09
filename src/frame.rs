@@ -12,7 +12,9 @@ struct Uniforms {
     viewport: vec2<f32>,
     source: vec2<f32>,
     staleness: f32,
-    _padding: vec3<f32>,
+    _padding_0: f32,
+    _padding_1: f32,
+    _padding_2: f32,
 };
 
 @group(0) @binding(0) var frame: texture_2d<f32>;
