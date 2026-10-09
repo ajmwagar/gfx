@@ -20,17 +20,22 @@ serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 schemars = { version = "1", optional = true }
 wgpu = { version = "27", features = ["wgsl"], optional = true }
+glam = { version = "0.29", optional = true }
+gltf = { version = "1.4", default-features = false, features = ["utils", "names", "extras"], optional = true }
 
 [features]
 default = ["wgpu"]
 schema = ["dep:schemars"]
 wgpu = ["dep:bytemuck", "dep:wgpu"]
+skeletal = ["dep:glam", "dep:gltf"]
 
 [dev-dependencies]
 criterion = "0.7"
 naga = { version = "27", features = ["wgsl-in"] }
 pollster = "0.4"
 serde_json = "1"
+png = "0.17"
+sha2 = "0.10"
 
 [[bench]]
 name = "scene"
@@ -53,3 +58,7 @@ codegen-units = 1
 [[example]]
 name = "offscreen"
 required-features = ["wgpu"]
+
+[[example]]
+name = "skeletal_offscreen"
+required-features = ["wgpu", "skeletal"]

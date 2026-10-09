@@ -4,6 +4,8 @@
 //! major storage; `model` must be rigid (rotation/translation, no nonuniform
 //! scaling). Shader output is linear RGB for an sRGB render attachment.
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "wgpu")]
+pub use crate::mesh_renderer::{Draw, Renderer};
 
 /// Reusable WGSL; entry points `vs_main` and `fs_main`, uniform binding 0/0.
 pub const SHADER: &str = include_str!("mesh.wgsl");

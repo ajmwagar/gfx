@@ -26,6 +26,10 @@ mod globe;
 pub mod media;
 pub mod video_matte;
 pub mod mesh;
+#[cfg(feature = "wgpu")]
+mod mesh_renderer;
+#[cfg(feature = "skeletal")]
+pub mod skeletal;
 pub mod motion;
 mod orbit;
 mod orientation;
