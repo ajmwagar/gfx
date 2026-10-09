@@ -23,8 +23,15 @@ pub struct ShaderSource {
 /// blending and no depth writes; visible ring radius is 0.68 times half its side.
 /// Time wraps internally; sources can be frozen for older native hosts using
 /// `cargo run --no-default-features --example export_lovr_sources -- OUTPUT`.
+/// `showroom-floor` uses room X/Z in UV, `floorEye` above the floor,
+/// `floorBounds` (xmin,xmax,zmin,zmax), and `floorTile` in metres. Reflections
+/// approximate the matching ceiling strips without an extra scene render.
 pub fn shader(name: &str) -> Option<ShaderSource> {
     Some(match name {
+        "showroom-floor" => ShaderSource {
+            vertex: "unlit",
+            fragment: include_str!("lovr/showroom-floor.frag"),
+        },
         "portal-embers" => ShaderSource {
             vertex: "unlit",
             fragment: include_str!("lovr/portal-embers.frag"),
@@ -80,6 +87,11 @@ mod tests {
             }
         }
         let model = shader("model").unwrap();
+        let floor = shader("showroom-floor").unwrap();
+        assert_eq!(floor.vertex, "unlit");
+        for uniform in ["floorEye", "floorBounds", "floorTile"] {
+            assert!(floor.fragment.contains(uniform));
+        }
         for uniform in ["tint", "metalness", "roughness", "useAuthored"] {
             assert!(model.fragment.contains(uniform));
         }
