@@ -18,8 +18,21 @@ pub struct ShaderSource {
 /// `model` retains tint/metalness/roughness/useAuthored uniforms. `terrain`
 /// retains authored material and vertex colors without additional uniforms.
 /// `splats` retains the SplatData storage buffer and instance-index contract.
+/// `portal-embers` and `portal-energy` take `portalTime` (seconds), `portalTint`
+/// (RGB), and `portalOpacity` (0..1). Hosts draw a UV quad with alpha/additive
+/// blending and no depth writes; visible ring radius is 0.68 times half its side.
+/// Time wraps internally; sources can be frozen for older native hosts using
+/// `cargo run --no-default-features --example export_lovr_sources -- OUTPUT`.
 pub fn shader(name: &str) -> Option<ShaderSource> {
     Some(match name {
+        "portal-embers" => ShaderSource {
+            vertex: "unlit",
+            fragment: include_str!("lovr/portal-embers.frag"),
+        },
+        "portal-energy" => ShaderSource {
+            vertex: "unlit",
+            fragment: include_str!("lovr/portal-energy.frag"),
+        },
         "laser-bolt" => ShaderSource {
             vertex: "unlit",
             fragment: include_str!("lovr/laser-bolt.frag"),
@@ -59,6 +72,13 @@ mod tests {
     fn bounded_source_catalog_preserves_host_contracts() {
         assert_eq!(ABI_VERSION, 1);
         assert!(shader("unknown").is_none());
+        for name in ["portal-embers", "portal-energy"] {
+            let source = shader(name).unwrap();
+            assert_eq!(source.vertex, "unlit");
+            for uniform in ["portalTime", "portalTint", "portalOpacity"] {
+                assert!(source.fragment.contains(uniform));
+            }
+        }
         let model = shader("model").unwrap();
         for uniform in ["tint", "metalness", "roughness", "useAuthored"] {
             assert!(model.fragment.contains(uniform));
