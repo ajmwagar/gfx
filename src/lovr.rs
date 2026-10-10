@@ -28,6 +28,10 @@ pub struct ShaderSource {
 /// approximate the matching ceiling strips without an extra scene render.
 pub fn shader(name: &str) -> Option<ShaderSource> {
     Some(match name {
+        "prop-highlight" => ShaderSource {
+            vertex: "unlit",
+            fragment: include_str!("lovr/prop-highlight.frag"),
+        },
         "showroom-floor" => ShaderSource {
             vertex: "unlit",
             fragment: include_str!("lovr/showroom-floor.frag"),
