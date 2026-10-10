@@ -14,6 +14,60 @@ pub struct ControlState {
     pub disabled: bool,
 }
 
+/// Whether an idle control has a face or blends into the shell bar.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ControlAppearance {
+    /// Persistent outlined control.
+    #[default]
+    Standard,
+    /// Idle controls retain their hit target without visual clutter.
+    Quiet,
+}
+
+/// Complete visual description shared by GPU and native adapters.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ControlVisual {
+    /// Canonical face geometry and color roles.
+    pub face: Primitive,
+    /// Label color role; disabled and idle labels remain legible but subordinate.
+    pub ink: ThemeRole,
+    /// Face opacity, independent of label opacity.
+    pub face_opacity: f32,
+}
+
+/// Resolve visual hierarchy without owning input, layout or palette colors.
+pub fn control_visual(
+    bounds: Rect,
+    shapes: ShapeTheme,
+    state: ControlState,
+    appearance: ControlAppearance,
+) -> Option<ControlVisual> {
+    let mut face = control_face(bounds, shapes, state)?;
+    let engaged = !state.disabled && (state.selected || state.focused || state.pressed);
+    if !state.disabled && state.pressed {
+        face.fill = ThemeRole::SurfaceRecessed;
+    }
+    let hidden = appearance == ControlAppearance::Quiet && !engaged;
+    if hidden {
+        face.outline_width = 0.0;
+    }
+    Some(ControlVisual {
+        face,
+        ink: if engaged {
+            ThemeRole::Text
+        } else {
+            ThemeRole::TextMuted
+        },
+        face_opacity: if hidden {
+            0.0
+        } else if state.disabled {
+            0.45
+        } else {
+            1.0
+        },
+    })
+}
+
 /// Canonical control face for wGPU scenes and native primitive visitors.
 /// Returns `false` without mutating the scene for invalid bounds or shape tokens.
 pub fn control(scene: &mut Scene, bounds: Rect, shapes: ShapeTheme, state: ControlState) -> bool {
@@ -70,7 +124,7 @@ pub fn bar(scene: &mut Scene, bounds: Rect) -> bool {
         return false;
     }
     scene.push(
-        Primitive::rounded_rect(bounds, 0.0, ThemeRole::SurfaceRecessed)
+        Primitive::rounded_rect(bounds, 0.0, ThemeRole::Surface)
             .with_outline(ThemeRole::Outline, 0.0),
     );
     true
@@ -80,6 +134,49 @@ pub fn bar(scene: &mut Scene, bounds: Rect) -> bool {
 mod tests {
     use super::*;
     use crate::Theme;
+    #[test]
+    fn quiet_pressed_and_disabled_have_shared_visual_hierarchy() {
+        let bounds = Rect::new(0.0, 0.0, 100.0, 32.0);
+        let shapes = Theme::default().shapes;
+        let idle = control_visual(
+            bounds,
+            shapes,
+            ControlState::default(),
+            ControlAppearance::Quiet,
+        )
+        .unwrap();
+        assert_eq!(idle.face_opacity, 0.0);
+        assert_eq!(idle.face.outline_width, 0.0);
+        assert_eq!(idle.ink, ThemeRole::TextMuted);
+        let pressed = control_visual(
+            bounds,
+            shapes,
+            ControlState {
+                pressed: true,
+                ..Default::default()
+            },
+            ControlAppearance::Quiet,
+        )
+        .unwrap();
+        assert_eq!(pressed.face.fill, ThemeRole::SurfaceRecessed);
+        assert_eq!(pressed.ink, ThemeRole::Text);
+        assert_eq!(pressed.face_opacity, 1.0);
+        let disabled = control_visual(
+            bounds,
+            shapes,
+            ControlState {
+                disabled: true,
+                selected: true,
+                focused: true,
+                pressed: true,
+            },
+            ControlAppearance::Standard,
+        )
+        .unwrap();
+        assert_eq!(disabled.face.fill, ThemeRole::Surface);
+        assert_eq!(disabled.ink, ThemeRole::TextMuted);
+        assert_eq!(disabled.face_opacity, 0.45);
+    }
     #[test]
     fn focus_selection_and_disabled_are_distinct() {
         let draw = |state| {
