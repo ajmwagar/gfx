@@ -13,6 +13,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "portal-energy",
         "showroom-floor",
         "prop-highlight",
+        "weapon-thermal",
         "model",
         "terrain",
     ] {
@@ -25,6 +26,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             source.vertex
         ));
         sources.push(serde_json::json!({"name":name,"vertex":source.vertex,"fragment":file,"sha256":digest,"origin":format!("https://github.com/ajmwagar/gfx/blob/main/src/lovr/{file}")}));
+    }
+    lua.push_str("},symbols={\n");
+    for name in ["range-reset", "range-next", "range-target", "range-paper"] {
+        lua.push_str(&format!("[\"{name}\"]={{"));
+        for point in fpl_gfx::symbols::outline(name).ok_or("missing outline")? {
+            lua.push_str(&format!("{{{}, {}}},",point[0],point[1]));
+        }
+        lua.push_str("},\n");
     }
     lua.push_str("}}\n");
     fs::write(root.join("catalog.lua"), lua)?;
