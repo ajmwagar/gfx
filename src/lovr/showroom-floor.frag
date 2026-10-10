@@ -3,13 +3,23 @@
 uniform vec3 floorEye;
 uniform vec4 floorBounds;
 uniform float floorTile;
+float checkerIntegral(float x) {
+  return 1. - abs(mod(x, 2.) - 1.);
+}
+float checkerFilter(float x, float width) {
+  width = max(width, .0001);
+  return (checkerIntegral(x + width * .5) - checkerIntegral(x - width * .5)) / width;
+}
 vec4 lovrmain() {
   vec2 p = UV;
-  vec2 tile = floor((p - floorBounds.xz) / floorTile);
-  float parity = mod(tile.x + tile.y, 2.);
+  vec2 tile = (p - floorBounds.xz) / floorTile;
+  vec2 footprint = fwidth(tile);
+  float parity = .5 - .5 * checkerFilter(tile.x, footprint.x) * checkerFilter(tile.y, footprint.y);
   vec3 base = mix(vec3(.62, .65, .68), vec3(.018, .023, .03), parity);
   vec2 grid = abs(fract((p - floorBounds.xz) / floorTile) - .5);
-  float seam = smoothstep(.491, .499, max(grid.x, grid.y));
+  float aa = max(footprint.x, footprint.y);
+  float seam = smoothstep(.493 - aa * .5, .493 + max(.001, aa * .5), max(grid.x, grid.y));
+  seam *= 1. - smoothstep(.1, .5, aa);
   base *= 1. - .35 * seam;
   float eyeHeight = max(.25, floorEye.y);
   vec2 reflected = p + (p - floorEye.xz) * (5. / eyeHeight);
