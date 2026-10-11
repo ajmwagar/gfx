@@ -5,6 +5,9 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Retained, bounded observation history and delayed linear map motion.
+pub mod motion;
+
 /// Invalid source geometry or unusable view extent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("invalid geographic map frame or geometry")]
