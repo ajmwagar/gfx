@@ -234,6 +234,14 @@ impl Map {
     /// Invalid inputs leave the caller's scene untouched.
     #[allow(clippy::cast_possible_truncation)]
     pub fn append(&self, scene: &mut Scene, bounds: Rect) -> Result<(), MapError> {
+        let mut fitted = self.clone();
+        if self.basemap.is_some() {
+            fitted.extent = raster::cropped_extent(self.extent, self.inner(bounds)?)?;
+        }
+        fitted.append_projected(scene, bounds)
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    fn append_projected(&self, scene: &mut Scene, bounds: Rect) -> Result<(), MapError> {
         let inner = self.inner(bounds)?;
         scene.push(Primitive::rounded_rect(
             bounds,
@@ -328,6 +336,14 @@ impl Map {
     /// Rejects invalid frames or widget bounds.
     #[allow(clippy::cast_possible_truncation)]
     pub fn labels(&self, bounds: Rect) -> Result<Vec<Label>, MapError> {
+        let mut fitted = self.clone();
+        if self.basemap.is_some() {
+            fitted.extent = raster::cropped_extent(self.extent, self.inner(bounds)?)?;
+        }
+        fitted.labels_projected(bounds)
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    fn labels_projected(&self, bounds: Rect) -> Result<Vec<Label>, MapError> {
         let inner = self.inner(bounds)?;
         let mut labels = vec![Label {
             text: "Regional geographic view".into(),

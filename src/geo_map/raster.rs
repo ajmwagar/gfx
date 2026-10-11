@@ -209,9 +209,65 @@ fn latitude(mercator_y: f64) -> f64 {
         .to_degrees()
 }
 
+/// Center-crop a regional extent to the plot's physical aspect ratio.
+/// Longitude distance is corrected at the region's central latitude. All
+/// overlays must use this same extent; independently fitting imagery is wrong.
+/// # Errors
+/// Rejects invalid bounds and polar regions without a usable regional scale.
+#[allow(clippy::float_cmp)] // Exact full-world sentinel, not approximate geometry.
+pub fn cropped_extent(extent: Extent, plot: Rect) -> Result<Extent, MapError> {
+    extent.validate().map_err(|_| MapError)?;
+    if !plot.is_valid() {
+        return Err(MapError);
+    }
+    let longitude = (extent.east_deg - extent.west_deg).rem_euclid(360.0);
+    let longitude = if longitude == 0.0 { 360.0 } else { longitude };
+    let latitude = extent.north_deg - extent.south_deg;
+    let center_lat = extent.north_deg.midpoint(extent.south_deg);
+    let cos = center_lat.to_radians().cos();
+    if cos <= 1e-6 {
+        return Err(MapError);
+    }
+    let aspect = f64::from(plot.width) / f64::from(plot.height);
+    let lat_span = latitude.min(longitude * cos / aspect);
+    let lon_span = longitude.min(latitude * aspect / cos);
+    let center_lon = extent.west_deg + longitude * 0.5;
+    let wrap = |lon: f64| (lon + 180.0).rem_euclid(360.0) - 180.0;
+    let result = Extent {
+        south_deg: center_lat - lat_span * 0.5,
+        north_deg: center_lat + lat_span * 0.5,
+        west_deg: wrap(center_lon - lon_span * 0.5),
+        east_deg: if lon_span == 360.0 {
+            180.0
+        } else {
+            wrap(center_lon + lon_span * 0.5)
+        },
+    };
+    result.validate().map_err(|_| MapError)?;
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn crop_preserves_regional_scale_for_wide_and_tall_windows() {
+        let e = Extent {
+            south_deg: 46.8,
+            north_deg: 48.7,
+            west_deg: -123.5,
+            east_deg: -121.5,
+        };
+        for (w, h) in [(1200.0, 500.0), (500.0, 1200.0)] {
+            let c = cropped_extent(e, Rect::new(0.0, 0.0, w, h)).unwrap();
+            let scale = (c.east_deg - c.west_deg)
+                * ((c.north_deg + c.south_deg) * 0.5).to_radians().cos()
+                / (c.north_deg - c.south_deg);
+            assert!((scale - f64::from(w) / f64::from(h)).abs() < 1e-10);
+            assert!(c.west_deg >= e.west_deg && c.east_deg <= e.east_deg);
+            assert!(c.south_deg >= e.south_deg && c.north_deg <= e.north_deg);
+        }
+    }
     #[test]
     fn basemap_is_bounded_digest_addressed_and_never_accepts_network_urls() {
         let asset = Asset {
