@@ -63,6 +63,58 @@ fn text(value: &str, limit: usize) -> bool {
     !value.is_empty() && value.chars().count() <= limit && !value.chars().any(char::is_control)
 }
 impl Map {
+    /// Select a visible contact using deterministic geographic navigation.
+    /// # Errors
+    /// Rejects invalid revisions before changing selection.
+    pub fn navigate(&mut self, action: crate::panels::TaskNavigation) -> Result<bool, MapError> {
+        use crate::panels::TaskNavigation;
+        self.validate()?;
+        let visible: Vec<_> = self
+            .markers
+            .iter()
+            .filter_map(|m| {
+                let p = self
+                    .extent
+                    .normalized(m.latitude_deg, m.longitude_deg)
+                    .ok()?;
+                ((0.0..=1.0).contains(&p[0]) && (0.0..=1.0).contains(&p[1]))
+                    .then_some((m.id.clone(), p))
+            })
+            .collect();
+        if matches!(action, TaskNavigation::Back) {
+            return Ok(self.selected.take().is_some());
+        }
+        let current = visible
+            .iter()
+            .find(|(id, _)| Some(id) == self.selected.as_ref());
+        let Some((_, origin)) = current else {
+            self.selected = visible.first().map(|(id, _)| id.clone());
+            return Ok(self.selected.is_some());
+        };
+        let direction = match action {
+            TaskNavigation::Left => [-1.0, 0.0],
+            TaskNavigation::Right => [1.0, 0.0],
+            TaskNavigation::Up => [0.0, -1.0],
+            TaskNavigation::Down => [0.0, 1.0],
+            _ => return Ok(true),
+        };
+        let candidate = visible
+            .iter()
+            .filter_map(|(id, p)| {
+                let dx = p[0] - origin[0];
+                let dy = p[1] - origin[1];
+                let forward = dx * direction[0] + dy * direction[1];
+                (forward > 0.0).then_some((
+                    id,
+                    dx * dx + dy * dy + (dx * direction[1] - dy * direction[0]).abs(),
+                ))
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(b.0)));
+        if let Some((id, _)) = candidate {
+            self.selected = Some(id.clone());
+        }
+        Ok(true)
+    }
     /// Validate the complete revision before painting any graphics.
     /// # Errors
     /// Rejects invalid coordinates, identities, selection or resource limits.
@@ -376,6 +428,26 @@ mod tests {
         let mut scene = Scene::new();
         frame.append(&mut scene, bounds).unwrap();
         assert!(scene.len() > 10);
+    }
+
+    #[test]
+    fn geographic_navigation_selects_directionally_and_clears() {
+        use crate::panels::TaskNavigation;
+        let mut map = fixture();
+        let mut second = map.markers[0].clone();
+        second.id = "adsb/2".into();
+        second.longitude_deg += 1.0;
+        map.markers.push(second);
+        assert!(map.navigate(TaskNavigation::Focus).unwrap());
+        assert_eq!(map.selected.as_deref(), Some("adsb/1"));
+        map.navigate(TaskNavigation::Right).unwrap();
+        assert_eq!(map.selected.as_deref(), Some("adsb/2"));
+        map.navigate(TaskNavigation::Left).unwrap();
+        assert_eq!(map.selected.as_deref(), Some("adsb/1"));
+        assert!(map.navigate(TaskNavigation::Back).unwrap());
+        assert!(!map.navigate(TaskNavigation::Back).unwrap());
+        map.markers.clear();
+        assert!(!map.navigate(TaskNavigation::Focus).unwrap());
     }
     #[test]
     fn invalid_revision_never_partially_mutates_geometry() {
