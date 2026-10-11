@@ -4,6 +4,35 @@ use super::MapError;
 use crate::{geo::Extent, Rect};
 use serde::{Deserialize, Serialize};
 
+/// Display-only treatment for light cartographic rasters. Asset bytes and
+/// attribution remain unchanged; this is not a semantic vector map style.
+pub fn tactical_pixel(pixel: [u8; 4]) -> [u8; 4] {
+    let [r, g, b, a] = pixel;
+    let luminance = (u32::from(r) * 54 + u32::from(g) * 183 + u32::from(b) * 19) / 256;
+    // Invert light paper and dark ink into a restrained night palette.
+    let shade = 14 + ((255 - luminance) * 42 / 100) as u8;
+    let rgb = if u16::from(b) > u16::from(r) + 12 && b >= g {
+        [10, 25, 37]
+    } else if u16::from(g) > u16::from(r) + 12 && g > b {
+        [18, 32, 27]
+    } else {
+        [shade, shade + 3, shade + 5]
+    };
+    [rgb[0], rgb[1], rgb[2], a]
+}
+
+#[cfg(test)]
+mod palette_tests {
+    use super::tactical_pixel;
+    #[test]
+    fn tactical_preserves_alpha_and_separates_water_land_and_ink() {
+        assert_eq!(tactical_pixel([255, 255, 255, 77]), [14, 17, 19, 77]);
+        assert_eq!(tactical_pixel([170, 210, 225, 255]), [10, 25, 37, 255]);
+        assert_eq!(tactical_pixel([175, 215, 165, 255]), [18, 32, 27, 255]);
+        assert!(tactical_pixel([30, 30, 30, 255])[0] > tactical_pixel([240, 240, 240, 255])[0]);
+    }
+}
+
 /// Verified raster asset reference. The host resolves a digest locally; this
 /// contract never accepts arbitrary network URLs or provider credentials.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
