@@ -207,8 +207,9 @@ impl Plot {
             0.0,
             ThemeRole::SurfaceRecessed,
         ));
-        for i in 0..=5 {
-            let y = inner.bottom() - i as f32 * inner.height / 5.0;
+        let y_divisions = vertical_divisions(inner.height);
+        for i in 0..=y_divisions {
+            let y = inner.bottom() - i as f32 * inner.height / y_divisions as f32;
             scene.push(Primitive::line(
                 [inner.x, y],
                 [inner.right(), y],
@@ -296,10 +297,14 @@ impl Plot {
                 role: s.role,
             });
         }
-        for i in 0..=5 {
-            let y = inner.bottom() - i as f32 * inner.height / 5.0;
+        let y_divisions = vertical_divisions(inner.height);
+        for i in 0..=y_divisions {
+            let y = inner.bottom() - i as f32 * inner.height / y_divisions as f32;
             labels.push(Label {
-                text: tick(v.y_minimum + (v.y_maximum - v.y_minimum) * f64::from(i) / 5.0),
+                text: tick(
+                    v.y_minimum
+                        + (v.y_maximum - v.y_minimum) * f64::from(i) / f64::from(y_divisions),
+                ),
                 bounds: Rect::new(bounds.x + 4.0, y - 8.0, 54.0, 16.0),
                 role: ThemeRole::TextMuted,
             });
@@ -324,9 +329,33 @@ impl Plot {
     }
 }
 
+// Keep tick glyphs readable in compact dashboard tiles; geometry and labels
+// share this exact budget rather than independently guessing their density.
+fn vertical_divisions(height: f32) -> i32 {
+    if height >= 110.0 {
+        5
+    } else if height >= 88.0 {
+        4
+    } else if height >= 66.0 {
+        3
+    } else if height >= 44.0 {
+        2
+    } else {
+        1
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn compact_tick_budget_preserves_readable_vertical_spacing() {
+        for height in [24.0, 43.0, 44.0, 65.0, 88.0, 110.0, 300.0] {
+            let divisions = vertical_divisions(height);
+            assert!((1..=5).contains(&divisions));
+            assert!(height / divisions as f32 >= 22.0);
+        }
+    }
     fn fixture() -> Plot {
         Plot {
             x: Axis {
