@@ -16,6 +16,8 @@ pub mod panels;
 pub mod plot;
 pub mod geo;
 pub mod geo_map;
+#[cfg(feature = "wgpu")]
+pub mod map_tiles;
 pub mod analysis;
 pub mod boids;
 mod clock;
