@@ -10,6 +10,12 @@ pub const BAR_TEXT_SIZE: u32 = 14;
 /// Outer shell row padding in logical pixels.
 pub const BAR_PADDING: u32 = 8;
 
+/// Platform-independent shell layout tokens, in logical rather than physical pixels.
+/// Native visitors and bounded Lua hosts consume this same ordered contract.
+pub const fn metrics() -> [u32; 4] {
+    [BAR_HEIGHT, BAR_CONTROL_HEIGHT, BAR_TEXT_SIZE, BAR_PADDING]
+}
+
 /// Orthogonal retained selection and transient interaction state.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ControlState {
@@ -145,6 +151,7 @@ mod tests {
     use crate::Theme;
     #[test]
     fn shell_bar_is_compact_without_shrinking_remote_targets() {
+        assert_eq!(metrics(), [44, 44, 14, 8]);
         assert_eq!(BAR_HEIGHT, 44);
         assert_eq!(BAR_CONTROL_HEIGHT, BAR_HEIGHT);
         assert!(BAR_TEXT_SIZE < BAR_CONTROL_HEIGHT / 2);
