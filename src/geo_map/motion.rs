@@ -310,6 +310,7 @@ mod tests {
     use crate::{geo::Extent, geo_map::Marker, ThemeRole};
     fn map(longitude: f64) -> Map {
         Map {
+            basemap: None,
             extent: Extent {
                 south_deg: -10.0,
                 north_deg: 10.0,
@@ -322,6 +323,7 @@ mod tests {
                 latitude_deg: 0.0,
                 longitude_deg: longitude,
                 role: ThemeRole::Primary,
+                observed_at_unix_ms: None,
             }],
             paths: vec![],
             selected: None,

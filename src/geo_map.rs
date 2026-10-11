@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 /// Retained, bounded observation history and delayed linear map motion.
 pub mod motion;
+/// Bounded raster placement, independent of tile retrieval and caching.
+pub mod raster;
 
 /// Invalid source geometry or unusable view extent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -36,6 +38,9 @@ pub struct Marker {
     pub longitude_deg: f64,
     /// Semantic theme color, never a hard-coded source palette.
     pub role: ThemeRole,
+    /// Owner observation revision time; not necessarily the physical fix time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_at_unix_ms: Option<u64>,
 }
 /// Observed line geometry. This does not silently fill polygon rings/holes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -61,6 +66,9 @@ pub struct Map {
     /// View selection; never a command to the data provider.
     #[serde(default)]
     pub selected: Option<String>,
+    /// Optional immutable imagery; acquisition and decoding remain host-owned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub basemap: Option<raster::Basemap>,
 }
 fn text(value: &str, limit: usize) -> bool {
     !value.is_empty() && value.chars().count() <= limit && !value.chars().any(char::is_control)
@@ -141,6 +149,9 @@ impl Map {
     /// Rejects invalid coordinates, identities, selection or resource limits.
     pub fn validate(&self) -> Result<(), MapError> {
         self.extent.validate().map_err(|_| MapError)?;
+        if let Some(layer) = &self.basemap {
+            layer.validate()?;
+        }
         if self.markers.len() > 512
             || self.paths.len() > 128
             || self.paths.iter().map(|p| p.points.len()).sum::<usize>() > 8192
@@ -180,7 +191,10 @@ impl Map {
         }
         Ok(())
     }
-    fn inner(&self, bounds: Rect) -> Result<Rect, MapError> {
+    /// Shared plot rectangle for raster imagery and geographic overlay alignment.
+    /// # Errors
+    /// Rejects an invalid map or unusable display bounds.
+    pub fn inner(&self, bounds: Rect) -> Result<Rect, MapError> {
         self.validate()?;
         if !bounds.is_valid()
             || !bounds.right().is_finite()
@@ -412,6 +426,7 @@ mod tests {
                 latitude_deg: if id == "outside" { 0.0 } else { 47.6 },
                 longitude_deg: -122.3,
                 role: ThemeRole::Primary,
+                observed_at_unix_ms: None,
             });
         }
         for expected in ["a", "b", "c", "a"] {
@@ -423,6 +438,7 @@ mod tests {
     }
     fn fixture() -> Map {
         Map {
+            basemap: None,
             extent: Extent {
                 south_deg: 45.0,
                 north_deg: 50.0,
@@ -435,6 +451,7 @@ mod tests {
                 latitude_deg: 47.6,
                 longitude_deg: -122.3,
                 role: ThemeRole::Primary,
+                observed_at_unix_ms: None,
             }],
             paths: vec![Path {
                 id: "boundary".into(),
