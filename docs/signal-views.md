@@ -10,6 +10,29 @@ dependency is required. All colors are semantic theme roles.
 | `waveform` | min/max envelope columns, value range | recording/peak-cache owner |
 | `scope` | uniformly spaced values and explicit scale | audio tap, LFO, automation or calibrated CV source |
 | `spectrum` | sorted frequency bands and amplitudes in dB | existing FFT/analyzer owner |
+| `SignalFrame::Plot` | physical X/Y samples, labeled unit domains, legends, optional viewport | telemetry or experiment owner |
+
+## Rich chart widgets
+
+`fpl_gfx::plot::Plot` adds axes, tick labels, a grid, theme-role legend swatches
+and clipped line traces. Hosts paint the returned geometry and glyph placements;
+no PDF, browser or remote screenshot is involved. Desktop Canvas uses iced/wGPU;
+FireTV paints the same geometry through its hardware-accelerated Android Canvas.
+Geometry preparation is CPU work; accelerated painting is not a claim of GPU DSP.
+
+The strict `SignalFrame` payload uses `view: "plot"` and a `plot` object with
+`x`, `y`, `series` and optional `viewport`. Each axis declares `label`, `unit`,
+`minimum` and `maximum`; each series declares a distinct `id`, `label`, semantic
+`role` and explicit `{x, y}` points. A null Y is a gap, not zero. At most four
+series and 4096 points per series are accepted. X coordinates must increase.
+The optional viewport is a valid subset of the physical domains; hosts own
+revisioned zoom/pan state and input, not gfx. This first slice does not implement
+hover inspection, linked panels, dashboards or Grafana/Tableau embedding.
+
+Lua composes a Canvas `signal_view` widget with `view = "plot"`; providers still
+own acquisition, units, identity, provenance and freshness. Completed experiment
+results remain labeled samples, never masquerade as live telemetry. Cache by
+frame, resolved theme and bounds; unchanged data should not regenerate paths.
 
 Live MIDI is the same piano-roll view with held notes ending at the current
 observation time. The app must handle note-off, sustain, duplicate notes, channel
@@ -44,7 +67,7 @@ requires suitable calibrated hardware; these views do not imply Scarlett DC/CV
 support. Empty input means empty display, never a fabricated signal. Reject NaN,
 infinity, malformed intervals or invalid ranges rather than hiding them.
 
-Current limits: rendering/hit geometry only; no text labels, beat-grid editing,
+Legacy builders' limits: rendering/hit geometry only; no text labels, beat-grid editing,
 drag commands, trigger acquisition or live stream adapters. Apps own labels and
 stale/no-data overlays. A scope trace is not a spectrogram or a full FFT engine.
 

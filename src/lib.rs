@@ -13,6 +13,7 @@ pub mod code;
 pub mod laser;
 pub mod chrome;
 pub mod panels;
+pub mod plot;
 pub mod analysis;
 pub mod boids;
 mod clock;
