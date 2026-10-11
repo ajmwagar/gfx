@@ -1,17 +1,60 @@
 //! Shared mesh rendering ABI and hologram/quantitative scalar shader.
 //!
-//! Hosts own geometry, solvers, GPU pipelines and targets. Matrices use column
+//! Hosts own geometry, solvers, GPU resources and targets. Shared pipeline
+//! construction is available through `Pipelines`. Matrices use column
 //! major storage; `model` must be rigid (rotation/translation, no nonuniform
 //! scaling). Shader output is linear RGB for an sRGB render attachment.
-use serde::{Deserialize, Serialize};
 #[cfg(feature = "wgpu")]
-pub use crate::mesh_renderer::{Draw, Renderer};
+pub use crate::mesh_renderer::{Draw, Pipelines, Renderer};
+use serde::{Deserialize, Serialize};
+
+/// Face finish independent of an optional edge overlay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Finish {
+    /// Preserve historical face shading and edge-toggle behavior.
+    #[default]
+    Legacy,
+    /// Animated hologram lighting, unaffected by the edge toggle.
+    Hologram,
+    /// Existing bright unlit shading, without scan or rim modulation.
+    Flat,
+}
+
+impl Finish {
+    /// Whether this is the serialization-compatible default.
+    pub const fn is_legacy(&self) -> bool {
+        matches!(self, Self::Legacy)
+    }
+
+    /// Separate fill/edge uniforms without changing geometry or scalar fields.
+    pub fn uniforms(self, mut base: Uniforms, edges: bool) -> (Uniforms, Option<Uniforms>) {
+        base.params[3] = match self {
+            Self::Legacy => {
+                if edges {
+                    1.
+                } else {
+                    0.
+                }
+            }
+            Self::Hologram => 0.,
+            Self::Flat => 1.,
+        };
+        let mut edge = base;
+        if self != Self::Legacy {
+            edge.params[3] = 1.;
+        }
+        (base, edges.then_some(edge))
+    }
+}
 
 /// Reusable WGSL; entry points `vs_main` and `fs_main`, uniform binding 0/0.
 pub const SHADER: &str = include_str!("mesh.wgsl");
 
 /// Canonical box wire geometry for displaying the same supplied bounds that
 /// analysis checked. Hosts transform these endpoints into their model frame.
+/// # Errors
+/// Rejects nonfinite bounds or a zero/negative extent on any axis.
 pub fn wire_box_edges(bounds: [[f32; 3]; 2]) -> Result<[[[f32; 3]; 2]; 12], &'static str> {
     if bounds.iter().flatten().any(|v| !v.is_finite())
         || (0..3).any(|i| bounds[0][i] >= bounds[1][i])
@@ -72,7 +115,7 @@ pub struct Uniforms {
     pub model: [[f32; 4]; 4],
     /// Theme color in sRGB, alpha ignored.
     pub color: [f32; 4],
-    /// Time seconds, glow, hologram opacity (quantitative mode is opaque), wireframe toggle.
+    /// Time, glow, hologram opacity (quantitative mode is opaque), bright unlit pass toggle.
     pub params: [f32; 4],
     /// Palette toggle, palette index, illustrative lighting toggle, reserved zero.
     /// Lighting must remain zero for quantitative fields whose colors encode values.
@@ -107,6 +150,41 @@ impl Colormap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[allow(
+        clippy::float_cmp,
+        reason = "Discrete shader selectors must match exactly."
+    )]
+    fn finishes_separate_edges_and_preserve_quantitative_state() {
+        let base = Uniforms {
+            mvp: [[0.; 4]; 4],
+            model: [[0.; 4]; 4],
+            color: [0.2, 0.3, 0.4, 1.],
+            params: [2., 1.15, 0.92, 0.],
+            field_params: [1., 2., 0., 0.],
+            eye: [0.; 4],
+        };
+        for finish in [Finish::Legacy, Finish::Hologram, Finish::Flat] {
+            let (plain, absent) = finish.uniforms(base, false);
+            assert!(absent.is_none());
+            let (filled, edge) = finish.uniforms(base, true);
+            let edge = edge.unwrap();
+            if finish != Finish::Legacy {
+                assert_eq!(plain.params, filled.params);
+            }
+            assert_eq!(edge.params[3], 1.);
+            for uniform in [plain, filled, edge] {
+                assert_eq!(uniform.field_params, base.field_params);
+                assert_eq!(uniform.mvp, base.mvp);
+                assert_eq!(uniform.model, base.model);
+                assert_eq!(uniform.color, base.color);
+                assert_eq!(&uniform.params[..3], &base.params[..3]);
+            }
+        }
+        assert_eq!(Finish::Legacy.uniforms(base, true).0.params[3], 1.);
+        assert_eq!(Finish::Hologram.uniforms(base, true).0.params[3], 0.);
+        assert_eq!(Finish::Flat.uniforms(base, false).0.params[3], 1.);
+    }
     #[test]
     fn wire_boxes_have_twelve_unique_axis_edges() {
         let edges = wire_box_edges([[0.; 3], [1.; 3]]).unwrap();

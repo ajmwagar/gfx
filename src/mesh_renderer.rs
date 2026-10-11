@@ -14,13 +14,17 @@ pub struct Draw<'a> {
     /// Camera, rigid model transform and appearance.
     pub uniforms: Uniforms,
 }
-/// Shared two-sided triangle renderer, including depth testing.
-pub struct Renderer {
-    pipeline: wgpu::RenderPipeline,
-    layout: wgpu::BindGroupLayout,
+/// Shared mesh pipelines for hosts retaining their own buffers and render passes.
+pub struct Pipelines {
+    /// Two-sided filled triangles with depth writes and straight-alpha blending.
+    pub triangles: wgpu::RenderPipeline,
+    /// Indexed edge overlay with the same ABI and depth comparison.
+    pub lines: wgpu::RenderPipeline,
+    /// Binding zero accepts the shared mesh uniform buffer.
+    pub layout: wgpu::BindGroupLayout,
 }
-impl Renderer {
-    /// Construct the shared shader pipeline for a caller-owned color format.
+impl Pipelines {
+    /// Construct shared pipelines for a caller-owned color format.
     /// Depth targets passed to render must use `Depth32Float`, single sample.
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -45,41 +49,63 @@ impl Renderer {
             bind_group_layouts: &[&layout],
             push_constant_ranges: &[],
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("gfx mesh pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                buffers: &[Vertex::layout()],
-            },
-            primitive: wgpu::PrimitiveState {
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview: None,
-            cache: None,
-        });
-        Self { pipeline, layout }
+        let make_pipeline = |topology| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("gfx mesh pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    buffers: &[Vertex::layout()],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview: None,
+                cache: None,
+            })
+        };
+        let triangles = make_pipeline(wgpu::PrimitiveTopology::TriangleList);
+        let lines = make_pipeline(wgpu::PrimitiveTopology::LineList);
+        Self {
+            triangles,
+            lines,
+            layout,
+        }
+    }
+}
+
+/// Shared two-sided triangle renderer for transient posed geometry.
+pub struct Renderer {
+    pipelines: Pipelines,
+}
+impl Renderer {
+    /// Construct shared pipelines; retained hosts may use [`Pipelines`] directly.
+    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+        Self {
+            pipelines: Pipelines::new(device, format),
+        }
     }
     /// Validate, upload and encode mesh draws into caller-owned color/depth targets.
     ///
@@ -128,7 +154,7 @@ impl Renderer {
                     .device
                     .create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("gfx mesh bind"),
-                        layout: &self.layout,
+                        layout: &self.pipelines.layout,
                         entries: &[wgpu::BindGroupEntry {
                             binding: 0,
                             resource: uniform.as_entire_binding(),
@@ -166,7 +192,7 @@ impl Renderer {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-        pass.set_pipeline(&self.pipeline);
+        pass.set_pipeline(&self.pipelines.triangles);
         for (vertex, index, bind, count) in &resources {
             pass.set_vertex_buffer(0, vertex.slice(..));
             pass.set_index_buffer(index.slice(..), wgpu::IndexFormat::Uint32);
