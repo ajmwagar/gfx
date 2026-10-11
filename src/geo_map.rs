@@ -87,6 +87,24 @@ impl Map {
         if matches!(action, TaskNavigation::Back) {
             return Ok(self.selected.take().is_some());
         }
+        if matches!(action, TaskNavigation::Next | TaskNavigation::Previous) {
+            let mut ids: Vec<_> = visible.iter().map(|(id, _)| id.clone()).collect();
+            ids.sort();
+            if ids.is_empty() {
+                return Ok(false);
+            }
+            let index = self
+                .selected
+                .as_ref()
+                .and_then(|selected| ids.iter().position(|id| id == selected));
+            let next = match (index, action) {
+                (Some(index), TaskNavigation::Next) => (index + 1) % ids.len(),
+                (Some(index), TaskNavigation::Previous) => (index + ids.len() - 1) % ids.len(),
+                _ => 0,
+            };
+            self.selected = Some(ids[next].clone());
+            return Ok(true);
+        }
         let current = visible
             .iter()
             .find(|(id, _)| Some(id) == self.selected.as_ref());
@@ -382,6 +400,27 @@ impl Map {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cycle_visits_coincident_contacts_in_sorted_order_and_wraps() {
+        use crate::panels::TaskNavigation;
+        let mut map = fixture();
+        map.markers.clear();
+        for id in ["c", "a", "b", "outside"] {
+            map.markers.push(Marker {
+                id: id.into(),
+                label: id.into(),
+                latitude_deg: if id == "outside" { 0.0 } else { 47.6 },
+                longitude_deg: -122.3,
+                role: ThemeRole::Primary,
+            });
+        }
+        for expected in ["a", "b", "c", "a"] {
+            map.navigate(TaskNavigation::Next).unwrap();
+            assert_eq!(map.selected.as_deref(), Some(expected));
+        }
+        map.navigate(TaskNavigation::Previous).unwrap();
+        assert_eq!(map.selected.as_deref(), Some("c"));
+    }
     fn fixture() -> Map {
         Map {
             extent: Extent {

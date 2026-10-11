@@ -246,6 +246,10 @@ pub enum TaskNavigation {
     Up,
     /// Move to the following row.
     Down,
+    /// Advance in deterministic item order, wrapping at the end.
+    Next,
+    /// Retreat in deterministic item order, wrapping at the beginning.
+    Previous,
     /// Expand the selected task in place.
     Open,
     /// Collapse, then clear focus; return false when neither applies.
@@ -290,6 +294,8 @@ impl TaskDeck {
                 }
             }
             (Some(i), TaskNavigation::Up) => i.saturating_sub(2),
+            (Some(i), TaskNavigation::Next) => (i + 1) % self.items.len(),
+            (Some(i), TaskNavigation::Previous) => (i + self.items.len() - 1) % self.items.len(),
             (Some(i), TaskNavigation::Down) => {
                 if i + 2 < self.items.len() {
                     i + 2
@@ -490,6 +496,18 @@ impl TaskDeck {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn next_and_previous_wrap_in_item_order() {
+        let mut deck:TaskDeck=serde_json::from_value(serde_json::json!({"items":[
+            {"id":"a","project":"Canvas","title":"Task A","meta":"neo","state":"active"},
+            {"id":"b","project":"Bus","title":"Task B","meta":"neo","state":"input"}],"fresh":true})).unwrap();
+        for expected in ["a","b","a"] {
+            deck.navigate(TaskNavigation::Next).unwrap();
+            assert_eq!(deck.selected.as_deref(),Some(expected));
+        }
+        deck.navigate(TaskNavigation::Previous).unwrap();
+        assert_eq!(deck.selected.as_deref(),Some("b"));
+    }
     #[test]
     fn navigation_tracks_identity_and_expands_without_authority() {
         let mut deck:TaskDeck=serde_json::from_value(serde_json::json!({"items":[

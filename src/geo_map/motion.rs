@@ -2,6 +2,53 @@
 use super::{Map, MapError, Path, Point};
 use std::collections::{BTreeMap, VecDeque};
 
+/// Pure presentation timer for automatic cycling; manual navigation defers it.
+#[derive(Debug, Clone)]
+pub struct Kiosk {
+    interval_ms: u64,
+    manual_pause_ms: u64,
+    next_ms: Option<u64>,
+}
+impl Default for Kiosk {
+    fn default() -> Self {
+        Self {
+            interval_ms: 15_000,
+            manual_pause_ms: 60_000,
+            next_ms: None,
+        }
+    }
+}
+impl Kiosk {
+    /// Configure a bounded interval and manual pause.
+    /// # Errors
+    /// Zero or excessive intervals are rejected.
+    pub fn new(interval_ms: u64, manual_pause_ms: u64) -> Result<Self, MapError> {
+        if !(1_000..=300_000).contains(&interval_ms)
+            || !(1_000..=600_000).contains(&manual_pause_ms)
+        {
+            return Err(MapError);
+        }
+        Ok(Self {
+            interval_ms,
+            manual_pause_ms,
+            next_ms: None,
+        })
+    }
+    /// Whether a contact should advance now. Initial focus is immediately due;
+    /// an absent selection never bypasses an explicit manual pause.
+    pub fn due(&self, now_ms: u64, _selected: Option<&str>) -> bool {
+        self.next_ms.is_none_or(|deadline| now_ms >= deadline)
+    }
+    /// Defer automatic cycling after any manual remote interaction.
+    pub fn manual(&mut self, now_ms: u64) {
+        self.next_ms = Some(now_ms.saturating_add(self.manual_pause_ms));
+    }
+    /// Start the next dwell only after a successful selection advance.
+    pub fn mark_advanced(&mut self, now_ms: u64) {
+        self.next_ms = Some(now_ms.saturating_add(self.interval_ms));
+    }
+}
+
 /// Host-selected resource and motion bounds; not part of the map wire schema.
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
@@ -246,6 +293,20 @@ fn distance_km(a: Point, b: Point) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn kiosk_dwell_and_manual_pause_are_deterministic() {
+        let mut kiosk = Kiosk::default();
+        assert!(kiosk.due(10_000, None));
+        kiosk.mark_advanced(10_000);
+        assert!(!kiosk.due(24_999, Some("plane")));
+        assert!(kiosk.due(25_000, Some("plane")));
+        kiosk.manual(20_000);
+        assert!(!kiosk.due(79_999, None));
+        assert!(kiosk.due(80_000, None));
+        kiosk.mark_advanced(80_000);
+        assert!(!kiosk.due(80_000, Some("plane")));
+        assert!(Kiosk::new(0, 60_000).is_err());
+    }
     use crate::{geo::Extent, geo_map::Marker, ThemeRole};
     fn map(longitude: f64) -> Map {
         Map {
