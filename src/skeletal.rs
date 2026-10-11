@@ -63,6 +63,7 @@ struct Primitive {
     positions: Vec<[f32; 3]>,
     normals: Option<Vec<[f32; 3]>>,
     texcoords: Option<Vec<[f32; 2]>>,
+    source_tangents: Option<Vec<[f32; 4]>>,
     joints: Option<Vec<[u16; 4]>>,
     weights: Option<Vec<[f32; 4]>>,
     indices: Vec<u32>,
@@ -104,6 +105,9 @@ pub struct MeshFrame {
     pub indices: Vec<u32>,
     /// Source UV set zero, if present. Texture sampling remains host-owned.
     pub texcoords: Option<Vec<[f32; 2]>>,
+    /// Original mesh-local glTF tangent xyz and handedness w, unchanged.
+    /// Not transformed or skinned; the current shared mesh shader does not use them.
+    pub source_tangents: Option<Vec<[f32; 4]>>,
     /// Linear glTF base color factor; a host must convert for the sRGB mesh uniform.
     pub color: [f32; 4],
 }
@@ -302,6 +306,7 @@ impl Asset {
                 vertices,
                 indices: p.indices.clone(),
                 texcoords: p.texcoords.clone(),
+                source_tangents: p.source_tangents.clone(),
                 color: p.color,
             });
         }
@@ -486,6 +491,10 @@ fn load_skins(source: &gltf::Gltf, nodes: &[Node], bin: &[u8]) -> Result<Vec<Ski
     clippy::too_many_lines,
     reason = "Keep all per-primitive bounds and attribute compatibility checks in one ordered validation pass."
 )]
+#[allow(
+    clippy::float_cmp,
+    reason = "glTF tangent handedness is the discrete sentinel -1 or +1."
+)]
 fn load_primitives(
     source: &gltf::Gltf,
     skins: &[Skin],
@@ -508,6 +517,7 @@ fn load_primitives(
                             semantic,
                             gltf::Semantic::Positions
                                 | gltf::Semantic::Normals
+                                | gltf::Semantic::Tangents
                                 | gltf::Semantic::TexCoords(0)
                                 | gltf::Semantic::Joints(0)
                                 | gltf::Semantic::Weights(0)
@@ -550,6 +560,32 @@ fn load_primitives(
                         "invalid UVs",
                     )?;
                 }
+                let source_tangents = if let Some(accessor) = p.get(&gltf::Semantic::Tangents) {
+                    require(
+                        accessor.data_type() == gltf::accessor::DataType::F32
+                            && accessor.dimensions() == gltf::accessor::Dimensions::Vec4
+                            && !accessor.normalized()
+                            && accessor.count() == positions.len(),
+                        "invalid tangent accessor type/count",
+                    )?;
+                    let tangents = reader
+                        .read_tangents()
+                        .ok_or_else(|| Error::Invalid("missing tangent data".into()))?
+                        .collect::<Vec<_>>();
+                    require(
+                        tangents.len() == positions.len()
+                            && tangents.iter().all(|t| {
+                                let direction = Vec3::new(t[0], t[1], t[2]);
+                                direction.is_finite()
+                                    && (direction.length_squared() - 1.).abs() <= 1e-3
+                                    && (t[3] == -1. || t[3] == 1.)
+                            }),
+                        "invalid tangent direction/handedness",
+                    )?;
+                    Some(tangents)
+                } else {
+                    None
+                };
                 let indices = reader.read_indices().map_or_else(
                     || (0..u32::try_from(positions.len()).expect("bounded vertices")).collect(),
                     |v| v.into_u32().collect::<Vec<_>>(),
@@ -612,6 +648,7 @@ fn load_primitives(
                     positions,
                     normals,
                     texcoords,
+                    source_tangents,
                     joints,
                     weights,
                     indices,
@@ -764,6 +801,102 @@ fn generated_normals(vertices: &mut [Vertex], indices: &[u32]) -> Result<(), Err
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn tangent_fixture(tangent: [f32; 4], count: usize, semantic: &str) -> Vec<u8> {
+        tangent_fixture_with_accessor(tangent, count, semantic, "VEC4", 5126, false)
+    }
+
+    fn tangent_fixture_with_accessor(
+        tangent: [f32; 4],
+        count: usize,
+        semantic: &str,
+        dimensions: &str,
+        component_type: u32,
+        normalized: bool,
+    ) -> Vec<u8> {
+        let mut bin = Vec::new();
+        for position in [[0_f32, 0., 0.], [1., 0., 0.], [0., 1., 0.]] {
+            for value in position {
+                bin.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        for _ in 0..count {
+            for value in tangent {
+                bin.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        let document = serde_json::json!({
+            "asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],
+            "nodes":[{"mesh":0}],"meshes":[{"primitives":[{"attributes":{"POSITION":0,semantic:1}}]}],
+            "buffers":[{"byteLength":bin.len()}],
+            "bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},
+                {"buffer":0,"byteOffset":36,"byteLength":count*16}],
+            "accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},
+                {"bufferView":1,"componentType":component_type,"count":count,"type":dimensions,"normalized":normalized}]
+        });
+        let mut json = serde_json::to_vec(&document).unwrap();
+        while json.len() % 4 != 0 {
+            json.push(b' ');
+        }
+        let mut bytes = b"glTF".to_vec();
+        bytes.extend_from_slice(&2_u32.to_le_bytes());
+        bytes.extend_from_slice(
+            &u32::try_from(28 + json.len() + bin.len())
+                .unwrap()
+                .to_le_bytes(),
+        );
+        bytes.extend_from_slice(&u32::try_from(json.len()).unwrap().to_le_bytes());
+        bytes.extend_from_slice(b"JSON");
+        bytes.extend_from_slice(&json);
+        bytes.extend_from_slice(&u32::try_from(bin.len()).unwrap().to_le_bytes());
+        bytes.extend_from_slice(b"BIN\0");
+        bytes.extend_from_slice(&bin);
+        bytes
+    }
+
+    #[test]
+    fn source_tangents_survive_rest_and_skinned_sampling_unchanged() {
+        let tangent = [1., 0., 0., -1.];
+        let static_asset = Asset::from_glb(&tangent_fixture(tangent, 3, "TANGENT")).unwrap();
+        let frame = static_asset.sample(None, 0.).unwrap();
+        assert_eq!(frame.meshes[0].source_tangents, Some(vec![tangent; 3]));
+        let mut skinned = asset();
+        skinned.primitives[0].source_tangents = Some(vec![tangent; 3]);
+        assert_eq!(
+            skinned.sample(Some(0), 3.).unwrap().meshes[0].source_tangents,
+            Some(vec![tangent; 3])
+        );
+    }
+
+    #[test]
+    fn malformed_tangents_and_other_attributes_still_fail() {
+        for (tangent, count, semantic) in [
+            ([1., 0., 0., 1.], 2, "TANGENT"),
+            ([1., 0., 0., 0.], 3, "TANGENT"),
+            ([2., 0., 0., 1.], 3, "TANGENT"),
+            ([f32::NAN, 0., 0., 1.], 3, "TANGENT"),
+            ([1., 0., 0., f32::INFINITY], 3, "TANGENT"),
+            ([1., 0., 0., 1.], 3, "COLOR_0"),
+        ] {
+            assert!(Asset::from_glb(&tangent_fixture(tangent, count, semantic)).is_err());
+        }
+        for (dimensions, component_type, normalized) in [
+            ("VEC3", 5126, false),
+            ("VEC4", 5123, false),
+            ("VEC4", 5126, true),
+        ] {
+            assert!(Asset::from_glb(&tangent_fixture_with_accessor(
+                [1., 0., 0., 1.],
+                3,
+                "TANGENT",
+                dimensions,
+                component_type,
+                normalized
+            ))
+            .is_err());
+        }
+    }
+
     fn asset() -> Asset {
         let rest = Trs {
             t: Vec3::ZERO,
@@ -796,6 +929,7 @@ mod tests {
                 positions: vec![[1., 0., 0.], [2., 0., 0.], [1., 1., 0.]],
                 normals: Some(vec![[0., 0., 1.]; 3]),
                 texcoords: None,
+                source_tangents: None,
                 joints: Some(vec![[0; 4]; 3]),
                 weights: Some(vec![[1., 0., 0., 0.]; 3]),
                 indices: vec![0, 1, 2],

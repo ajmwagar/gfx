@@ -7,6 +7,13 @@ use std::{error::Error, fs, io::Write, path::Path};
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
+fn selected_clip(argument: &str) -> Result<Option<usize>, Box<dyn Error>> {
+    if argument == "rest" {
+        Ok(None)
+    } else {
+        Ok(Some(argument.parse()?))
+    }
+}
 fn main() -> Result<(), Box<dyn Error>> {
     pollster::block_on(run())
 }
@@ -18,7 +25,8 @@ async fn run() -> Result<(), Box<dyn Error>> {
     let args = std::env::args().collect::<Vec<_>>();
     if args.len() < 5 || args.len() > 68 {
         return Err(
-            "usage: skeletal_offscreen INPUT.glb NEW_DIR CLIP SECONDS... (up to 64 frames)".into(),
+            "usage: skeletal_offscreen INPUT.glb NEW_DIR CLIP|rest SECONDS... (up to 64 frames)"
+                .into(),
         );
     }
     let input = Path::new(&args[1]);
@@ -27,10 +35,10 @@ async fn run() -> Result<(), Box<dyn Error>> {
     }
     let bytes = fs::read(input)?;
     let asset = Asset::from_glb(&bytes)?;
-    let clip = args[3].parse::<usize>()?;
+    let clip = selected_clip(&args[3])?;
     let frames = args[4..]
         .iter()
-        .map(|t| Ok(asset.sample(Some(clip), t.parse::<f32>()?)?))
+        .map(|t| Ok(asset.sample(clip, t.parse::<f32>()?)?))
         .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
     let mut low = Vec3::splat(f32::INFINITY);
     let mut high = Vec3::splat(f32::NEG_INFINITY);
@@ -42,6 +50,9 @@ async fn run() -> Result<(), Box<dyn Error>> {
                 high = high.max(p);
             }
         }
+    }
+    if !low.is_finite() || !high.is_finite() {
+        return Err("Capture has no finite mesh bounds".into());
     }
     let center = (low + high) * 0.5;
     let extent = (high - low).max(Vec3::splat(0.001));
@@ -162,10 +173,22 @@ async fn run() -> Result<(), Box<dyn Error>> {
             encoder.write_header()?.write_image_data(&rgba)?;
         }
         let file = format!("pose-{i:03}.png");
-        records.push(json!({"seconds":frame.seconds,"clip":frame.clip,"png":file,"png_sha256":digest(&png),"rgba_sha256":digest(&rgba),"meshes":frame.meshes.iter().map(|m|json!({"node":m.node,"positions":m.vertices.iter().map(|v|v.position).collect::<Vec<_>>(),"normals":m.vertices.iter().map(|v|v.normal).collect::<Vec<_>>(),"indices":m.indices})).collect::<Vec<_>>()}));
+        records.push(json!({"seconds":frame.seconds,"clip":frame.clip,"png":file,"png_sha256":digest(&png),"rgba_sha256":digest(&rgba),"meshes":frame.meshes.iter().map(|m| {
+            let mut record = json!({"node":m.node,"positions":m.vertices.iter().map(|v|v.position).collect::<Vec<_>>(),"normals":m.vertices.iter().map(|v|v.normal).collect::<Vec<_>>(),"indices":m.indices});
+            if let Some(tangents) = &m.source_tangents {
+                record["source_tangents"] = json!(tangents);
+                record["tangent_use"] = json!("retained mesh-local; not transformed/skinned or used by shader; source shading/PBR unqualified");
+            }
+            record
+        }).collect::<Vec<_>>()}));
         images.push((file, png));
     }
-    let receipt = json!({"schema":"gfx.skeletal-capture.v1","source_sha256":digest(&bytes),"shader_sha256":digest(mesh::SHADER.as_bytes()),"sampling":"per-channel clamp; STEP and LINEAR TRS","skinning":"CPU world-space linear blend; inverse-transpose provided normals or deformed-face generated normals","material":"shared illustrative mesh shader, cyan; no source textures/PBR","adapter":{"name":info.name,"backend":format!("{:?}",info.backend),"vendor":info.vendor,"device":info.device,"driver":info.driver},"size":[256,256],"mvp":mvp.to_cols_array_2d(),"frames":records});
+    let sampling = if clip.is_some() {
+        "per-channel clamp; STEP and LINEAR TRS"
+    } else {
+        "authored rest pose; no animation channels sampled"
+    };
+    let receipt = json!({"schema":"gfx.skeletal-capture.v1","source_sha256":digest(&bytes),"shader_sha256":digest(mesh::SHADER.as_bytes()),"sampling":sampling,"skinning":"CPU world-space linear blend; inverse-transpose provided normals or deformed-face generated normals","material":"shared illustrative mesh shader, cyan; no source textures/PBR","adapter":{"name":info.name,"backend":format!("{:?}",info.backend),"vendor":info.vendor,"device":info.device,"driver":info.driver},"size":[256,256],"mvp":mvp.to_cols_array_2d(),"frames":records});
     let output = Path::new(&args[2]);
     fs::create_dir(output)?;
     for (file, data) in images {
@@ -180,4 +203,19 @@ async fn run() -> Result<(), Box<dyn Error>> {
         )?
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_explicit_rest_and_preserves_numeric_clips() {
+        assert_eq!(selected_clip("rest").unwrap(), None);
+        assert_eq!(selected_clip("0").unwrap(), Some(0));
+        assert_eq!(selected_clip("42").unwrap(), Some(42));
+        assert!(selected_clip("-1").is_err());
+        assert!(selected_clip("idle").is_err());
+        assert!(selected_clip("").is_err());
+    }
 }
