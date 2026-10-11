@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 /// Retained, bounded observation history and delayed linear map motion.
 pub mod motion;
+/// Local view camera; independent of observations and tile acquisition.
+pub mod camera;
 /// Bounded raster placement, independent of tile retrieval and caching.
 pub mod raster;
 
