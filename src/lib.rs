@@ -14,6 +14,7 @@ pub mod laser;
 pub mod chrome;
 pub mod panels;
 pub mod plot;
+pub mod geo;
 pub mod analysis;
 pub mod boids;
 mod clock;
