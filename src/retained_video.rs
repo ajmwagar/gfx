@@ -6,6 +6,108 @@ pub const SHADER: &str = include_str!("shaders/retained_video.wgsl");
 /// Binding-two uniform byte count; derived from the shared host ABI.
 pub const UNIFORM_BYTES: u64 = core::mem::size_of::<Uniforms>() as u64;
 
+/// Shared GPU state for retained video; the caller owns textures and scheduling.
+#[cfg(feature = "wgpu")]
+pub struct Pipeline {
+    /// Fullscreen triangle with straight-alpha blending into the caller's target.
+    pub render_pipeline: wgpu::RenderPipeline,
+    /// Frame, filtering sampler, shared uniforms and separate alpha bindings.
+    pub bind_group_layout: wgpu::BindGroupLayout,
+    /// Linear filtering with clamped image boundaries.
+    pub sampler: wgpu::Sampler,
+}
+
+#[cfg(feature = "wgpu")]
+impl Pipeline {
+    /// Construct the production video pipeline for a caller-owned target format.
+    ///
+    /// Texture color-space interpretation belongs to the source texture format;
+    /// the render target format controls output encoding. The shader returns
+    /// straight color, including when the source is premultiplied.
+    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+        let texture_entry = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        };
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("GFX retained video layout"),
+            entries: &[
+                texture_entry(0),
+                texture_entry(3),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(UNIFORM_BYTES),
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("GFX retained video pipeline layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("GFX retained video shader"),
+            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+        });
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("GFX retained video pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some("vs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some("fs_main"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("GFX retained video linear sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        Self {
+            render_pipeline,
+            bind_group_layout,
+            sampler,
+        }
+    }
+}
+
 /// Uniform ABI matching the retained-video WGSL, with native float byte order.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
