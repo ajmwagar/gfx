@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 pub mod motion;
 /// Local view camera; independent of observations and tile acquisition.
 pub mod camera;
+/// Narrow current-view tile acquisition contract; hosts own transport.
+pub mod tiles;
 /// Bounded raster placement, independent of tile retrieval and caching.
 pub mod raster;
 
