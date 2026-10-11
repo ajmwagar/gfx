@@ -1,6 +1,15 @@
 //! Shared shell chrome. Hosts own labels, hit testing and input, not visual states.
 use crate::{Primitive, Rect, Scene, ShapeTheme, ThemeRole};
 
+/// Shared logical shell row height; platform hosts apply their own display scale.
+pub const BAR_HEIGHT: u32 = 44;
+/// Remote/keyboard shell controls occupy the entire logical row.
+pub const BAR_CONTROL_HEIGHT: u32 = BAR_HEIGHT;
+/// Compact shell label size in logical pixels, not physical display pixels.
+pub const BAR_TEXT_SIZE: u32 = 14;
+/// Outer shell row padding in logical pixels.
+pub const BAR_PADDING: u32 = 8;
+
 /// Orthogonal retained selection and transient interaction state.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ControlState {
@@ -134,6 +143,13 @@ pub fn bar(scene: &mut Scene, bounds: Rect) -> bool {
 mod tests {
     use super::*;
     use crate::Theme;
+    #[test]
+    fn shell_bar_is_compact_without_shrinking_remote_targets() {
+        assert_eq!(BAR_HEIGHT, 44);
+        assert_eq!(BAR_CONTROL_HEIGHT, BAR_HEIGHT);
+        assert!(BAR_TEXT_SIZE < BAR_CONTROL_HEIGHT / 2);
+        assert!(f64::from(BAR_HEIGHT) / 540.0 < 0.09);
+    }
     #[test]
     fn quiet_pressed_and_disabled_have_shared_visual_hierarchy() {
         let bounds = Rect::new(0.0, 0.0, 100.0, 32.0);
