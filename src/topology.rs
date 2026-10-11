@@ -233,6 +233,25 @@ impl Graph {
         Ok(())
     }
 
+    /// Apply host finish tokens without changing layout, IDs or state color roles.
+    ///
+    /// # Errors
+    /// Rejects invalid graph, bounds or appearance before changing the scene.
+    pub fn append_with_appearance(
+        &self,
+        scene: &mut Scene,
+        bounds: Rect,
+        appearance: &crate::view_appearance::ViewAppearance,
+    ) -> Result<(), TopologyError> {
+        appearance.validate().map_err(|_| TopologyError)?;
+        let mut scratch = Scene::new();
+        self.append(&mut scratch, bounds)?;
+        for primitive in scratch.iter() {
+            scene.push(appearance.apply(*primitive));
+        }
+        Ok(())
+    }
+
     /// Label placement and node-state captions, deterministic under input reorder.
     ///
     /// # Errors
@@ -350,5 +369,61 @@ mod tests {
             .append(&mut scene, Rect::new(0.0, 0.0, 800.0, 400.0))
             .is_err());
         assert!(scene.is_empty());
+    }
+
+    #[test]
+    fn finishes_retain_graph_identity_geometry_and_state_roles() {
+        let graph = graph();
+        let before = graph.clone();
+        let bounds = Rect::new(0.0, 0.0, 800.0, 400.0);
+        let mut clean = Scene::new();
+        let mut terminal = Scene::new();
+        graph
+            .append_with_appearance(
+                &mut clean,
+                bounds,
+                &crate::view_appearance::ViewAppearance::clean(),
+            )
+            .unwrap();
+        graph
+            .append_with_appearance(
+                &mut terminal,
+                bounds,
+                &crate::view_appearance::ViewAppearance::terminal(),
+            )
+            .unwrap();
+        assert_eq!(clean.len(), terminal.len());
+        assert_eq!(graph, before);
+        for (a, b) in clean.iter().zip(terminal.iter()) {
+            let mut without_finish = *b;
+            without_finish.gloss = a.gloss;
+            without_finish.grain = a.grain;
+            without_finish.emission = a.emission;
+            assert_eq!(*a, without_finish);
+        }
+        assert!(clean.validate() && terminal.validate());
+    }
+
+    #[test]
+    fn bad_finish_or_graph_never_changes_existing_scene() {
+        let bounds = Rect::new(0.0, 0.0, 800.0, 400.0);
+        let mut scene = Scene::new();
+        scene.push(Primitive::rounded_rect(bounds, 0.0, ThemeRole::Surface));
+        let before: Vec<_> = scene.iter().copied().collect();
+        let mut appearance = crate::view_appearance::ViewAppearance::clean();
+        appearance.material.gloss = f32::NAN;
+        assert!(graph()
+            .append_with_appearance(&mut scene, bounds, &appearance)
+            .is_err());
+        let mut bad = graph();
+        bad.edges[0].target = "missing".into();
+        assert!(bad
+            .append_with_appearance(
+                &mut scene,
+                bounds,
+                &crate::view_appearance::ViewAppearance::terminal()
+            )
+            .is_err());
+        assert_eq!(scene.iter().copied().collect::<Vec<_>>(), before);
     }
 }

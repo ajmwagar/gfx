@@ -1,6 +1,6 @@
 //! Bounded editorial and task panels. Hosts own fonts, state, freshness and I/O.
 use crate::{
-    Primitive, Rect, Scene, ThemeRole, attention::Attention, signals::ViewError, topology::Label,
+    attention::Attention, signals::ViewError, topology::Label, Primitive, Rect, Scene, ThemeRole,
 };
 use serde::{Deserialize, Serialize};
 
@@ -119,8 +119,20 @@ impl Brief {
             ));
             y += head.height;
         }
-        let line = Rect::new(b.x, b.y + b.height * 0.33, b.width, b.height * 0.044);
-        let (lines, more) = wrapped(&self.body, line, 12);
+        // Body text has a readable logical-pixel floor. A short panel shows
+        // fewer lines instead of shrinking every row to a fraction of its height.
+        let line_height = (b.height * 0.044).clamp(18.0, 32.0);
+        let body_top = (y + line_height * 0.35).max(b.y + b.height * 0.33);
+        let footer_top = b.y + b.height * 0.95;
+        let capacity = (1_u16..=12)
+            .rfind(|rows| body_top + f32::from(*rows) * line_height * 1.12 <= footer_top)
+            .unwrap_or(0);
+        let line = Rect::new(b.x, body_top, b.width, line_height);
+        let (lines, more) = if capacity == 0 {
+            (Vec::new(), !self.body.is_empty())
+        } else {
+            wrapped(&self.body, line, usize::from(capacity))
+        };
         y = line.y;
         for text in lines {
             result.push(label(
@@ -494,12 +506,11 @@ mod tests {
         assert!(labels.iter().any(|l| l.text == "Bus"));
         assert!(!labels.iter().any(|l| l.text == "Canvas"));
         deck.fresh = false;
-        assert!(
-            deck.labels(Rect::new(0., 0., 1200., 800.))
-                .unwrap()
-                .iter()
-                .any(|l| l.text.contains("Telemetry stale"))
-        );
+        assert!(deck
+            .labels(Rect::new(0., 0., 1200., 800.))
+            .unwrap()
+            .iter()
+            .any(|l| l.text.contains("Telemetry stale")));
         assert!(deck.navigate(TaskNavigation::Back).unwrap());
         assert!(!deck.expanded);
         assert!(deck.navigate(TaskNavigation::Back).unwrap());
@@ -549,10 +560,29 @@ mod tests {
         let labels = brief.labels(b).unwrap();
         assert!(labels.len() <= 16);
         assert!(labels.last().unwrap().text.contains("Excerpt"));
-        assert!(
-            labels
+        assert!(labels
+            .iter()
+            .all(|l| l.bounds.bottom() <= b.bottom() + 0.01));
+    }
+    #[test]
+    fn short_brief_preserves_readable_rows_and_reports_omission() {
+        let brief = Brief {
+            kicker: "ACTIVITY".into(),
+            headline: "Observed calls".into(),
+            body: (0..20).map(|n| format!("Actual call {n}\n")).collect(),
+            footer: "Owner observations".into(),
+        };
+        for height in [100.0, 180.0, 300.0, 900.0] {
+            let bounds = Rect::new(0., 0., 640., height);
+            let labels = brief.labels(bounds).unwrap();
+            assert!(labels.last().unwrap().text.contains("Excerpt"));
+            for row in labels
                 .iter()
-                .all(|l| l.bounds.bottom() <= b.bottom() + 0.01)
-        );
+                .filter(|label| label.text.starts_with("Actual call"))
+            {
+                assert!(row.bounds.height >= 18.0);
+                assert!(row.bounds.bottom() <= height * 0.95);
+            }
+        }
     }
 }

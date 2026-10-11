@@ -9,6 +9,7 @@
 //! animated control surfaces without becoming an application framework.
 
 pub mod attention;
+pub mod code;
 pub mod laser;
 pub mod chrome;
 pub mod panels;
@@ -25,6 +26,7 @@ mod geometry;
 mod globe;
 pub mod media;
 pub mod video_matte;
+pub mod view_appearance;
 pub mod mesh;
 #[cfg(feature = "wgpu")]
 mod mesh_renderer;

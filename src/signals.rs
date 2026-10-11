@@ -271,6 +271,11 @@ pub struct PianoViewport {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "view", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SignalFrame {
+    /// Owner-decoded code columns with an inspection selection, never a CPU PC.
+    CodeGrid {
+        /// Bounded code observations; finish tokens remain a separate host input.
+        grid: crate::code::CodeGrid,
+    },
     /// Bounded project-first task tiles, selected by the caller.
     TaskDeck {
         /// Owner-authored task metadata and explicit freshness.
@@ -343,6 +348,7 @@ impl SignalFrame {
     /// Rejects invalid topology data or geometry.
     pub fn labels(&self, bounds: Rect) -> Result<Vec<crate::topology::Label>, ViewError> {
         match self {
+            Self::CodeGrid { grid } => grid.labels(bounds).map_err(|_| ViewError),
             Self::TaskDeck { panel } => panel.labels(bounds),
             Self::Brief { panel } => panel.labels(bounds),
             Self::Attention { panel } => panel.labels(bounds),
@@ -357,6 +363,7 @@ impl SignalFrame {
     /// Returns `ViewError` for invalid payloads or view geometry.
     pub fn append(&self, scene: &mut Scene, bounds: Rect) -> Result<(), ViewError> {
         match self {
+            Self::CodeGrid { grid } => grid.append(scene, bounds).map_err(|_| ViewError),
             Self::TaskDeck { panel } => panel.append(scene, bounds),
             Self::Brief { panel } => panel.append(scene, bounds),
             Self::Attention { panel } => panel.append(scene, bounds),
@@ -390,6 +397,36 @@ impl SignalFrame {
                 notes,
                 *playhead,
             ),
+        }
+    }
+
+    /// Append with host-owned finish tokens independent of the observed snapshot.
+    /// Geometry, identities, measurements and semantic state colors are retained.
+    ///
+    /// # Errors
+    /// Rejects invalid snapshot, placement or appearance before changing the scene.
+    pub fn append_with_appearance(
+        &self,
+        scene: &mut Scene,
+        bounds: Rect,
+        appearance: &crate::view_appearance::ViewAppearance,
+    ) -> Result<(), ViewError> {
+        appearance.validate()?;
+        match self {
+            Self::CodeGrid { grid } => grid
+                .append_with_appearance(scene, bounds, appearance)
+                .map_err(|_| ViewError),
+            Self::Topology { graph } => graph
+                .append_with_appearance(scene, bounds, appearance)
+                .map_err(|_| ViewError),
+            _ => {
+                let mut scratch = Scene::new();
+                self.append(&mut scratch, bounds)?;
+                for primitive in scratch.iter() {
+                    scene.push(appearance.apply(*primitive));
+                }
+                Ok(())
+            }
         }
     }
 
@@ -546,29 +583,25 @@ mod tests {
     #[test]
     fn validation_is_atomic() {
         let mut scene = Scene::new();
-        assert!(
-            scope(
-                &mut scene,
-                bounds(),
-                range(),
-                &[0.0, f32::NAN],
-                ThemeRole::Primary
-            )
-            .is_err()
-        );
-        assert!(
-            waveform(
-                &mut scene,
-                bounds(),
-                range(),
-                &[Envelope {
-                    minimum: 1.0,
-                    maximum: -1.0
-                }],
-                ThemeRole::Primary
-            )
-            .is_err()
-        );
+        assert!(scope(
+            &mut scene,
+            bounds(),
+            range(),
+            &[0.0, f32::NAN],
+            ThemeRole::Primary
+        )
+        .is_err());
+        assert!(waveform(
+            &mut scene,
+            bounds(),
+            range(),
+            &[Envelope {
+                minimum: 1.0,
+                maximum: -1.0
+            }],
+            ThemeRole::Primary
+        )
+        .is_err());
         assert!(scene.is_empty());
     }
     #[test]
@@ -602,16 +635,14 @@ mod tests {
         .unwrap();
         assert_eq!(scene.len(), MAX_ITEMS);
         assert!(scene.validate());
-        assert!(
-            scope(
-                &mut scene,
-                bounds(),
-                range(),
-                &vec![0.0; MAX_ITEMS + 1],
-                ThemeRole::Primary
-            )
-            .is_err()
-        );
+        assert!(scope(
+            &mut scene,
+            bounds(),
+            range(),
+            &vec![0.0; MAX_ITEMS + 1],
+            ThemeRole::Primary
+        )
+        .is_err());
     }
     #[test]
     fn piano_clips_notes_and_shares_hit_geometry() {
@@ -668,21 +699,19 @@ mod tests {
         .unwrap();
         assert!(scene.validate());
         let len = scene.len();
-        assert!(
-            spectrum(
-                &mut scene,
-                bounds(),
-                hz,
-                db,
-                &[SpectrumBand {
-                    low_hz: 0.0,
-                    high_hz: 1.0,
-                    db: 0.0
-                }],
-                ThemeRole::Primary
-            )
-            .is_err()
-        );
+        assert!(spectrum(
+            &mut scene,
+            bounds(),
+            hz,
+            db,
+            &[SpectrumBand {
+                low_hz: 0.0,
+                high_hz: 1.0,
+                db: 0.0
+            }],
+            ThemeRole::Primary
+        )
+        .is_err());
         assert_eq!(scene.len(), len);
     }
 
@@ -720,5 +749,87 @@ mod tests {
         )
         .unwrap();
         assert!(scene.validate());
+    }
+
+    #[test]
+    fn code_frame_roundtrips_observations_without_style_fields() {
+        let raw = serde_json::json!({
+            "view":"code_grid",
+            "grid":{
+                "title":"Fixture code", "source":"fixture", "freshness":"recorded",
+                "rows":[{"address":"ram:00401000","bytes":"90","mnemonic":"NOP","operands":"","comment":null}],
+                "selected_address":"ram:00401000", "first_row":0
+            }
+        });
+        let frame: SignalFrame = serde_json::from_value(raw.clone()).unwrap();
+        frame.validate().unwrap();
+        assert_eq!(serde_json::to_value(&frame).unwrap(), raw);
+        let mut forbidden = raw;
+        forbidden["appearance"] = serde_json::json!({"shader":"terminal"});
+        assert!(serde_json::from_value::<SignalFrame>(forbidden).is_err());
+        let labels = frame.labels(Rect::new(0.0, 0.0, 800.0, 400.0)).unwrap();
+        assert!(labels.iter().any(|label| label.text == "NOP"));
+    }
+
+    #[test]
+    fn generic_frame_finish_changes_no_measurements_geometry_or_state_roles() {
+        let frame = SignalFrame::Scope {
+            range: range(),
+            samples: vec![-0.5, 0.0, 0.5],
+        };
+        let before = frame.clone();
+        let mut clean = Scene::new();
+        let mut terminal = Scene::new();
+        frame
+            .append_with_appearance(
+                &mut clean,
+                bounds(),
+                &crate::view_appearance::ViewAppearance::clean(),
+            )
+            .unwrap();
+        frame
+            .append_with_appearance(
+                &mut terminal,
+                bounds(),
+                &crate::view_appearance::ViewAppearance::terminal(),
+            )
+            .unwrap();
+        assert_eq!(frame, before);
+        assert_eq!(clean.len(), terminal.len());
+        for (a, b) in clean.iter().zip(terminal.iter()) {
+            let mut without_finish = *b;
+            without_finish.gloss = a.gloss;
+            without_finish.grain = a.grain;
+            without_finish.emission = a.emission;
+            assert_eq!(*a, without_finish);
+        }
+    }
+
+    #[test]
+    fn invalid_finish_or_generic_frame_never_partially_appends() {
+        let mut scene = Scene::new();
+        scene.push(Primitive::lamp(bounds(), 0.0, ThemeRole::Warning));
+        let before: Vec<_> = scene.iter().copied().collect();
+        let frame = SignalFrame::Scope {
+            range: range(),
+            samples: vec![f32::NAN],
+        };
+        assert!(frame
+            .append_with_appearance(
+                &mut scene,
+                bounds(),
+                &crate::view_appearance::ViewAppearance::terminal()
+            )
+            .is_err());
+        let frame = SignalFrame::Scope {
+            range: range(),
+            samples: vec![0.4],
+        };
+        let mut appearance = crate::view_appearance::ViewAppearance::clean();
+        appearance.material.emission = f32::INFINITY;
+        assert!(frame
+            .append_with_appearance(&mut scene, bounds(), &appearance)
+            .is_err());
+        assert_eq!(scene.iter().copied().collect::<Vec<_>>(), before);
     }
 }
