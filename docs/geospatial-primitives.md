@@ -32,6 +32,15 @@ height increments. It is a local tangent frame, not a globally flat map.
 
 ## Existing owners reviewed
 
+`gfx::geo_map::Map`, exposed as `SignalFrame::GeoMap`, is a bounded regional
+Canvas view with theme-role markers, clipped boundary/trail lines, coordinate
+grid labels and a collision-limited caption budget. It accepts at most 512
+markers, 128 paths and 8192 path positions; validates whole revisions before
+painting; and handles longitude wrapping without drawing a date-line segment
+across the world. The host retains/caches its existing GPU scene. This is not
+the continuous globe, a tile service or an interactive GIS catalog. Source
+timestamps, expiry and omission counts stay with the provider/composition.
+
 Panopticon's `panopticon-render-contract` already owns stable feature IDs,
 sources, observation timestamps, confidence, affiliation and semantic feature
 classes. Keep that contract there; GFX must not grow a second competing feature

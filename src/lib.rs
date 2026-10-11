@@ -15,6 +15,7 @@ pub mod chrome;
 pub mod panels;
 pub mod plot;
 pub mod geo;
+pub mod geo_map;
 pub mod analysis;
 pub mod boids;
 mod clock;

@@ -2,6 +2,45 @@
 
 use serde::{Deserialize, Serialize};
 
+// Shared Liang–Barsky clipping in normalized coordinates, before f32 conversion.
+pub(crate) fn clip_unit_segment(a: [f64; 2], b: [f64; 2]) -> Option<([f64; 2], [f64; 2])> {
+    let d = [b[0] - a[0], b[1] - a[1]];
+    if a.iter().chain(&b).chain(&d).any(|v| !v.is_finite()) {
+        return None;
+    }
+    let mut lo: f64 = 0.0;
+    let mut hi: f64 = 1.0;
+    for (p, q) in [
+        (-d[0], a[0]),
+        (d[0], 1.0 - a[0]),
+        (-d[1], a[1]),
+        (d[1], 1.0 - a[1]),
+    ] {
+        if p == 0.0 {
+            if q < 0.0 {
+                return None;
+            }
+        } else {
+            let t = q / p;
+            if p < 0.0 {
+                lo = lo.max(t);
+            } else {
+                hi = hi.min(t);
+            }
+            if lo > hi {
+                return None;
+            }
+        }
+    }
+    let at = |t: f64| {
+        [
+            (a[0] + d[0] * t).clamp(0.0, 1.0),
+            (a[1] + d[1] * t).clamp(0.0, 1.0),
+        ]
+    };
+    Some((at(lo), at(hi)))
+}
+
 /// A point in two-dimensional logical space.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
 pub struct Point {

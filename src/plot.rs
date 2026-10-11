@@ -1,6 +1,7 @@
 //! Bounded, theme-role chart geometry. Providers own acquisition and reduction;
 //! hosts own glyphs, input, and revisioned viewport state.
 #![allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+use crate::geometry::clip_unit_segment as clip;
 use crate::{topology::Label, Primitive, Rect, Scene, ThemeRole};
 use serde::{Deserialize, Serialize};
 
@@ -321,45 +322,6 @@ impl Plot {
         }
         Ok(labels)
     }
-}
-
-// Liang–Barsky in normalized coordinates; clipping precedes f32 conversion.
-fn clip(a: [f64; 2], b: [f64; 2]) -> Option<([f64; 2], [f64; 2])> {
-    let d = [b[0] - a[0], b[1] - a[1]];
-    if d.iter().any(|x| !x.is_finite()) {
-        return None;
-    }
-    let mut lo: f64 = 0.0;
-    let mut hi: f64 = 1.0;
-    for (p, q) in [
-        (-d[0], a[0]),
-        (d[0], 1.0 - a[0]),
-        (-d[1], a[1]),
-        (d[1], 1.0 - a[1]),
-    ] {
-        if p == 0.0 {
-            if q < 0.0 {
-                return None;
-            }
-        } else {
-            let t = q / p;
-            if p < 0.0 {
-                lo = lo.max(t);
-            } else {
-                hi = hi.min(t);
-            }
-            if lo > hi {
-                return None;
-            }
-        }
-    }
-    let at = |t: f64| {
-        [
-            (a[0] + d[0] * t).clamp(0.0, 1.0),
-            (a[1] + d[1] * t).clamp(0.0, 1.0),
-        ]
-    };
-    Some((at(lo), at(hi)))
 }
 
 #[cfg(test)]

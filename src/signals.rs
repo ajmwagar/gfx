@@ -271,6 +271,11 @@ pub struct PianoViewport {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "view", rename_all = "snake_case", deny_unknown_fields)]
 pub enum SignalFrame {
+    /// Bounded geographic markers and paths with shared coordinate labels.
+    GeoMap {
+        /// Provider-adapted observations; no provider API or credentials.
+        map: crate::geo_map::Map,
+    },
     /// Rich physical chart with axes, grid, legends, gaps and bounded traces.
     Plot {
         /// Provider-owned data plus separately declared visible viewport.
@@ -353,6 +358,7 @@ impl SignalFrame {
     /// Rejects invalid topology data or geometry.
     pub fn labels(&self, bounds: Rect) -> Result<Vec<crate::topology::Label>, ViewError> {
         match self {
+            Self::GeoMap { map } => map.labels(bounds).map_err(|_| ViewError),
             Self::Plot { plot } => plot.labels(bounds).map_err(|_| ViewError),
             Self::CodeGrid { grid } => grid.labels(bounds).map_err(|_| ViewError),
             Self::TaskDeck { panel } => panel.labels(bounds),
@@ -369,6 +375,7 @@ impl SignalFrame {
     /// Returns `ViewError` for invalid payloads or view geometry.
     pub fn append(&self, scene: &mut Scene, bounds: Rect) -> Result<(), ViewError> {
         match self {
+            Self::GeoMap { map } => map.append(scene, bounds).map_err(|_| ViewError),
             Self::Plot { plot } => plot.append(scene, bounds).map_err(|_| ViewError),
             Self::CodeGrid { grid } => grid.append(scene, bounds).map_err(|_| ViewError),
             Self::TaskDeck { panel } => panel.append(scene, bounds),
