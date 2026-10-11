@@ -150,6 +150,23 @@ It does not measure audio, predict phonemes, or subscribe to a transport.
 for 3D hosts. Build and retain these meshes once; animate their transforms and
 colors, not their topology. Holodeck's bounded Rust/Lua bridge consumes both.
 
+### Retained host adapters and generated catalogs
+
+`retained_waterfall` owns the scalar waterfall WGSL, mixed float/integer
+uniform ABI and wGPU pipeline. Hosts keep their ring textures, incremental
+row uploads, clocks and layout. The original Canvas palette, gamma and
+unobserved-history color are preserved. Run the explicit native pixel gate
+with `cargo test --test retained_waterfall_gpu -- --ignored` on a GPU host.
+
+`symbols::svg` derives bounded browser SVG directly from the same outlines
+used by native hosts. SVG uses `currentColor`; the caller owns aliases, size
+and semantics. Generate catalogs with `cargo run --no-default-features
+--example export_symbols -- OUTPUT.json`, or add `--check` before the path
+to reject drift without writing. `export_lovr_sources` supports the same
+read-only check for frozen LÖVR shader bundles and their catalog. These
+exports need no GPU device. Source identity checks do not qualify a host's
+blending, materials or runtime performance.
+
 Views select [`ThemeRole`](https://docs.rs/fpl-gfx/latest/fpl_gfx/enum.ThemeRole.html)
 values such as `SurfaceRaised`, `Primary`, `Warning`, and `MeterHigh`. The host
 injects the actual colors and material behavior through a validated `Theme`.

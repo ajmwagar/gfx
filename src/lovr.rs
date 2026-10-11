@@ -5,6 +5,20 @@
 /// Stable version of this source catalog and its uniform contracts.
 pub const ABI_VERSION: u32 = 1;
 
+/// Frozen shader subset supporting hosts whose native plugin predates new names.
+pub const FROZEN_SHADERS: &[&str] = &[
+    "portal-embers",
+    "portal-energy",
+    "showroom-floor",
+    "prop-highlight",
+    "weapon-thermal",
+    "model",
+    "terrain",
+];
+
+/// Frozen UI outlines bundled with the source catalog.
+pub const FROZEN_SYMBOLS: &[&str] = &["range-reset", "range-next", "range-target", "range-paper"];
+
 /// Borrowed immutable sources, compiled and cached by the host renderer.
 #[derive(Debug, Clone, Copy)]
 pub struct ShaderSource {
@@ -17,7 +31,7 @@ pub struct ShaderSource {
 /// Look up a bounded named shader; unknown names are rejected by the host.
 /// `model` retains tint/metalness/roughness/useAuthored uniforms. `terrain`
 /// retains authored material and vertex colors without additional uniforms.
-/// `splats` retains the SplatData storage buffer and instance-index contract.
+/// `splats` retains the `SplatData` storage buffer and instance-index contract.
 /// `portal-embers` and `portal-energy` take `portalTime` (seconds), `portalTint`
 /// (RGB), and `portalOpacity` (0..1). Hosts draw a UV quad with alpha/additive
 /// blending and no depth writes; visible ring radius is 0.68 times half its side.

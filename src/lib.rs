@@ -30,6 +30,7 @@ mod globe;
 pub mod media;
 pub mod video_matte;
 pub mod retained_video;
+pub mod retained_waterfall;
 pub mod view_appearance;
 pub mod mesh;
 #[cfg(feature = "wgpu")]
