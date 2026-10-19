@@ -4,7 +4,7 @@ use bytemuck::{Pod, Zeroable};
 use thiserror::Error;
 use wgpu::util::DeviceExt;
 
-use crate::{relative_to_origin_f32, wgs84_ellipsoid_mesh, EllipsoidVertex, SpatialError};
+use crate::{EllipsoidVertex, SpatialError, relative_to_origin_f32, wgs84_ellipsoid_mesh};
 
 const DEFAULT_LATITUDE_SEGMENTS: u32 = 64;
 const DEFAULT_LONGITUDE_SEGMENTS: u32 = 128;
@@ -501,6 +501,52 @@ impl GlobeRenderer {
         self.point_count =
             u32::try_from(self.points.len()).map_err(|_| GlobeRenderError::TooManyPoints)?;
         self.last_origin = None;
+        Ok(())
+    }
+
+    /// Replaces a bounded range of retained points without invalidating the
+    /// static prefix. When the camera-relative origin is unchanged, the next
+    /// frame uploads only this range to the instance buffer.
+    pub fn update_points(
+        &mut self,
+        queue: &wgpu::Queue,
+        start: usize,
+        points: &[GlobePoint],
+    ) -> Result<(), GlobeRenderError> {
+        let Some(end) = start.checked_add(points.len()) else {
+            return Err(GlobeRenderError::TooManyPoints);
+        };
+        if end > self.points.len()
+            || points.iter().any(|point| {
+                point
+                    .ecef_m
+                    .into_iter()
+                    .chain(point.color.map(f64::from))
+                    .chain([f64::from(point.size_px)])
+                    .any(|value| !value.is_finite())
+                    || point.size_px <= 0.0
+            })
+        {
+            return Err(GlobeRenderError::InvalidPoint);
+        }
+        self.points[start..end].copy_from_slice(points);
+        let Some(origin) = self.last_origin else {
+            return Ok(());
+        };
+        for (target, source) in self.point_instances[start..end].iter_mut().zip(points) {
+            *target = PointInstance {
+                center: relative_to_origin_f32(source.ecef_m, origin),
+                color: source.color,
+                size_px: source.size_px,
+            };
+        }
+        if !points.is_empty() {
+            queue.write_buffer(
+                &self.point_instance_buffer,
+                (start * std::mem::size_of::<PointInstance>()) as u64,
+                bytemuck::cast_slice(&self.point_instances[start..end]),
+            );
+        }
         Ok(())
     }
 
