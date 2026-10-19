@@ -11,6 +11,9 @@ pub enum SpatialError {
     /// Segment counts must be non-zero and fit in a `u32` index buffer.
     #[error("ellipsoid segment counts are invalid")]
     InvalidSegments,
+    /// Geographic patch bounds must be finite, ordered and inside WGS84 ranges.
+    #[error("surface patch bounds are invalid")]
+    InvalidBounds,
 }
 
 /// One canonical ellipsoid vertex before camera-relative conversion.
@@ -74,6 +77,34 @@ pub fn wgs84_ellipsoid_mesh(
     latitude_segments: u32,
     longitude_segments: u32,
 ) -> Result<EllipsoidMesh, SpatialError> {
+    wgs84_surface_patch(
+        [-180.0, -90.0, 180.0, 90.0],
+        latitude_segments,
+        longitude_segments,
+    )
+}
+
+/// Generates a bounded WGS84 surface mesh without increasing global tessellation.
+/// Bounds are west/south/east/north degrees and cannot cross the antimeridian.
+///
+/// # Errors
+/// Returns an error for invalid bounds or segment counts.
+pub fn wgs84_surface_patch(
+    bounds: [f64; 4],
+    latitude_segments: u32,
+    longitude_segments: u32,
+) -> Result<EllipsoidMesh, SpatialError> {
+    let [west, south, east, north] = bounds;
+    if bounds.iter().any(|value| !value.is_finite())
+        || west < -180.0
+        || east > 180.0
+        || south < -90.0
+        || north > 90.0
+        || west >= east
+        || south >= north
+    {
+        return Err(SpatialError::InvalidBounds);
+    }
     let vertex_count = latitude_segments
         .checked_add(1)
         .and_then(|latitude| {
@@ -89,10 +120,11 @@ pub fn wgs84_ellipsoid_mesh(
         .ok_or(SpatialError::InvalidSegments)?;
     let mut vertices = Vec::with_capacity(vertex_count as usize);
     for latitude_index in 0..=latitude_segments {
-        let latitude = -90.0 + 180.0 * f64::from(latitude_index) / f64::from(latitude_segments);
+        let latitude =
+            south + (north - south) * f64::from(latitude_index) / f64::from(latitude_segments);
         for longitude_index in 0..=longitude_segments {
             let longitude =
-                -180.0 + 360.0 * f64::from(longitude_index) / f64::from(longitude_segments);
+                west + (east - west) * f64::from(longitude_index) / f64::from(longitude_segments);
             vertices.push(EllipsoidVertex {
                 ecef_m: geodetic_to_ecef(latitude, longitude, 0.0),
                 // Tessellation coordinates are bounded to latitude/longitude
@@ -161,6 +193,32 @@ mod tests {
         assert_eq!(
             wgs84_ellipsoid_mesh(0, 8).unwrap_err(),
             SpatialError::InvalidSegments,
+        );
+    }
+
+    #[test]
+    fn neighborhood_patch_preserves_bounds_and_surface_precision() {
+        let mesh = wgs84_surface_patch([-122.37, 47.62, -122.31, 47.67], 32, 32).unwrap();
+        assert_eq!(mesh.vertices.len(), 33 * 33);
+        assert_eq!(mesh.vertices[0].coordinates_degrees, [47.62, -122.37]);
+        assert_eq!(
+            mesh.vertices.last().unwrap().coordinates_degrees,
+            [47.67, -122.31]
+        );
+        let midpoint: [f64; 3] = std::array::from_fn(|axis| {
+            mesh.vertices[0].ecef_m[axis].midpoint(mesh.vertices[1].ecef_m[axis])
+        });
+        let exact = geodetic_to_ecef(47.62, -122.37 + 0.06 / 64.0, 0.0);
+        let error = midpoint
+            .into_iter()
+            .zip(exact)
+            .map(|(a, b)| (a - b).powi(2))
+            .sum::<f64>()
+            .sqrt();
+        assert!(error < 0.01, "patch chord error {error} m");
+        assert_eq!(
+            wgs84_surface_patch([1.0, 0.0, -1.0, 1.0], 32, 32).unwrap_err(),
+            SpatialError::InvalidBounds
         );
     }
 }
