@@ -63,8 +63,8 @@ pub use frame::{
 pub use geometry::{Point, Rect, Size};
 #[cfg(feature = "wgpu")]
 pub use globe::{
-    GlobeFrame, GlobePoint, GlobeRenderError, GlobeRenderStats, GlobeRenderer, GlobeRendererConfig,
-    GlobeStyle,
+    GlobeFrame, GlobeLineSegment, GlobeMarkerKind, GlobeMarkerStyle, GlobePoint, GlobeRenderError,
+    GlobeRenderStats, GlobeRenderer, GlobeRendererConfig, GlobeStyle,
 };
 pub use orbit::{
     named_orientation, orientation_at, OrbitAction, OrbitController, OrbitLimits, OrbitPose,
@@ -81,8 +81,8 @@ pub use renderer::{
 };
 pub use scene::{Primitive, PrimitiveKind, Scene};
 pub use spatial::{
-    geodetic_to_ecef, relative_to_origin_f32, wgs84_ellipsoid_mesh, EllipsoidMesh, EllipsoidVertex,
-    SpatialError, WGS84_SEMI_MAJOR_M, WGS84_SEMI_MINOR_M,
+    geodetic_to_ecef, relative_to_origin_f32, wgs84_ellipsoid_mesh, wgs84_surface_patch,
+    EllipsoidMesh, EllipsoidVertex, SpatialError, WGS84_SEMI_MAJOR_M, WGS84_SEMI_MINOR_M,
 };
 pub use surface::{
     NativeSurfaceHandle, PixelFormat, SurfaceDescriptor, SurfaceError, SurfaceLease,
