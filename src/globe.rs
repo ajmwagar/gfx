@@ -17,6 +17,7 @@ struct FrameUniforms {
     boundary: vec4<f32>,
     atmosphere: vec4<f32>,
     raster_bounds: vec4<f32>,
+    detail_bounds: vec4<f32>,
     viewport: vec2<f32>,
     _padding: vec2<f32>,
 };
@@ -24,6 +25,7 @@ struct FrameUniforms {
 @group(0) @binding(0) var<uniform> frame: FrameUniforms;
 @group(0) @binding(1) var earth_raster: texture_2d<f32>;
 @group(0) @binding(2) var earth_sampler: sampler;
+@group(0) @binding(3) var detail_raster: texture_2d<f32>;
 
 struct EarthInput {
     @location(0) position: vec3<f32>,
@@ -58,6 +60,17 @@ fn earth_fragment(input: EarthOutput) -> @location(0) vec4<f32> {
     var surface = frame.land;
     if inside_raster {
         surface = textureSample(earth_raster, earth_sampler, raster_uv);
+    }
+    let bounds = frame.detail_bounds;
+    let detail_inside = bounds.x < bounds.z && longitude >= bounds.x && longitude <= bounds.z
+        && latitude >= bounds.y && latitude <= bounds.w;
+    if detail_inside {
+        let mercator_lat = log(tan(0.78539816339 + radians(latitude) * 0.5));
+        let mercator_north = log(tan(0.78539816339 + radians(bounds.w) * 0.5));
+        let mercator_south = log(tan(0.78539816339 + radians(bounds.y) * 0.5));
+        let uv = vec2<f32>((longitude - bounds.x) / (bounds.z - bounds.x),
+            (mercator_north - mercator_lat) / (mercator_north - mercator_south));
+        surface = textureSample(detail_raster, earth_sampler, uv);
     }
     let latitude_phase = fract((input.geo_degrees.x + 90.0) / 10.0);
     let longitude_phase = fract((input.geo_degrees.y + 180.0) / 10.0);
@@ -120,6 +133,7 @@ struct FrameUniforms {
     boundary: [f32; 4],
     atmosphere: [f32; 4],
     raster_bounds: [f32; 4],
+    detail_bounds: [f32; 4],
     viewport: [f32; 2],
     padding: [f32; 2],
 }
@@ -249,8 +263,10 @@ pub struct GlobeRenderer {
     bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
     raster_texture: wgpu::Texture,
+    detail_texture: wgpu::Texture,
     raster_sampler: wgpu::Sampler,
     raster_bounds: [f32; 4],
+    detail_bounds: [f32; 4],
     uniform_buffer: wgpu::Buffer,
     earth_vertex_buffer: wgpu::Buffer,
     earth_index_buffer: wgpu::Buffer,
@@ -330,8 +346,19 @@ impl GlobeRenderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
+        let detail_texture = raster_texture(device, 1, 1);
         let raster_texture = raster_texture(device, 1, 1);
         let raster_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("fpl-gfx globe raster sampler"),
@@ -347,6 +374,7 @@ impl GlobeRenderer {
             &uniform_buffer,
             &raster_texture,
             &raster_sampler,
+            &detail_texture,
         );
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("fpl-gfx globe pipeline layout"),
@@ -379,8 +407,10 @@ impl GlobeRenderer {
             bind_group_layout,
             bind_group,
             raster_texture,
+            detail_texture,
             raster_sampler,
             raster_bounds: [-180.0, -90.0, 180.0, 90.0],
+            detail_bounds: [0.0; 4],
             uniform_buffer,
             earth_vertex_buffer,
             earth_index_buffer,
@@ -460,9 +490,62 @@ impl GlobeRenderer {
             &self.uniform_buffer,
             &texture,
             &self.raster_sampler,
+            &self.detail_texture,
         );
         self.raster_texture = texture;
         self.raster_bounds = bounds_degrees.map(|value| value as f32);
+        Ok(())
+    }
+
+    /// Updates Web Mercator detail over the retained global basemap.
+    /// Bounds are west/south/east/north degrees; texels are north-up XYZ imagery.
+    ///
+    /// # Errors
+    /// Returns an invalid-raster error for unordered bounds, polar extents,
+    /// zero dimensions, overflow or a mismatched RGBA payload.
+    pub fn set_mercator_detail_rgba8(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+        bounds: [f64; 4],
+        rgba: &[u8],
+    ) -> Result<(), GlobeRenderError> {
+        validate_raster_bounds(bounds)?;
+        if bounds[1] < -85.051_129
+            || bounds[3] > 85.051_129
+            || width == 0
+            || height == 0
+            || width
+                .checked_mul(height)
+                .and_then(|pixels| pixels.checked_mul(4))
+                .map(|bytes| bytes as usize)
+                != Some(rgba.len())
+        {
+            return Err(GlobeRenderError::InvalidRaster);
+        }
+        let texture = raster_texture(device, width, height);
+        queue.write_texture(
+            texture.as_image_copy(),
+            rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(width * 4),
+                rows_per_image: Some(height),
+            },
+            texture.size(),
+        );
+        self.bind_group = raster_bind_group(
+            device,
+            &self.bind_group_layout,
+            &self.uniform_buffer,
+            &self.raster_texture,
+            &self.raster_sampler,
+            &texture,
+        );
+        self.detail_texture = texture;
+        self.detail_bounds = bounds.map(|value| value as f32);
         Ok(())
     }
 
@@ -575,6 +658,7 @@ impl GlobeRenderer {
             boundary: frame.style.boundary,
             atmosphere: frame.style.atmosphere,
             raster_bounds: self.raster_bounds,
+            detail_bounds: self.detail_bounds,
             // WGPU texture limits are far below the first integer not exactly
             // representable by f32, so viewport dimensions remain exact.
             #[allow(clippy::cast_precision_loss)]
@@ -730,8 +814,10 @@ fn raster_bind_group(
     uniform_buffer: &wgpu::Buffer,
     texture: &wgpu::Texture,
     sampler: &wgpu::Sampler,
+    detail: &wgpu::Texture,
 ) -> wgpu::BindGroup {
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let detail_view = detail.create_view(&wgpu::TextureViewDescriptor::default());
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("fpl-gfx globe frame bindings"),
         layout,
@@ -747,6 +833,10 @@ fn raster_bind_group(
             wgpu::BindGroupEntry {
                 binding: 2,
                 resource: wgpu::BindingResource::Sampler(sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::TextureView(&detail_view),
             },
         ],
     })
@@ -857,7 +947,16 @@ fn point_pipeline(
             cull_mode: None,
             ..Default::default()
         },
-        depth_stencil: Some(depth_state(depth_format)),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::LessEqual,
+            bias: wgpu::DepthBiasState {
+                constant: -2,
+                slope_scale: 0.0,
+                clamp: 0.0,
+            },
+            ..depth_state(depth_format)
+        }),
         multisample: wgpu::MultisampleState::default(),
         multiview: None,
         cache: None,
@@ -889,7 +988,7 @@ mod tests {
 
     #[test]
     fn gpu_struct_layouts_match_wgsl_contract() {
-        assert_eq!(std::mem::size_of::<FrameUniforms>(), 160);
+        assert_eq!(std::mem::size_of::<FrameUniforms>(), 176);
         assert_eq!(std::mem::size_of::<EarthVertex>(), 20);
         assert_eq!(std::mem::size_of::<PointInstance>(), 32);
     }
@@ -974,6 +1073,33 @@ mod tests {
                     }],
                 )
                 .unwrap();
+            renderer
+                .set_raster_rgba8(&device, &queue, 1, 1, &[24, 28, 36, 255])
+                .unwrap();
+            renderer
+                .set_mercator_detail_rgba8(
+                    &device,
+                    &queue,
+                    1,
+                    1,
+                    [-123.0, 47.0, -122.0, 48.0],
+                    &[20, 100, 40, 255],
+                )
+                .unwrap();
+            assert_eq!(renderer.detail_bounds, [-123.0, 47.0, -122.0, 48.0]);
+            assert!(
+                renderer
+                    .set_mercator_detail_rgba8(
+                        &device,
+                        &queue,
+                        1,
+                        1,
+                        [-123.0, 47.0, -122.0, 48.0],
+                        &[]
+                    )
+                    .is_err()
+            );
+            // Updating the base texture must preserve the detail binding.
             renderer
                 .set_raster_rgba8(&device, &queue, 1, 1, &[24, 28, 36, 255])
                 .unwrap();
