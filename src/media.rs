@@ -4,7 +4,7 @@ use crate::{Color, Point, Primitive, Rect, Scene, ThemeRole};
 /// Bounded maximum cards in a single shelf viewport.
 pub const MAX_CARDS: usize = 24;
 /// Separation between a shelf and its selected-record detail panel.
-pub const DETAIL_GAP:f32=24.0;
+pub const DETAIL_GAP: f32 = 24.0;
 
 /// One record-crate slot. Labels and cover textures remain host-owned.
 #[derive(Debug, Clone, Copy, PartialEq)]
