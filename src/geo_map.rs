@@ -5,14 +5,14 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-/// Retained, bounded observation history and delayed linear map motion.
-pub mod motion;
 /// Local view camera; independent of observations and tile acquisition.
 pub mod camera;
-/// Narrow current-view tile acquisition contract; hosts own transport.
-pub mod tiles;
+/// Retained, bounded observation history and delayed linear map motion.
+pub mod motion;
 /// Bounded raster placement, independent of tile retrieval and caching.
 pub mod raster;
+/// Narrow current-view tile acquisition contract; hosts own transport.
+pub mod tiles;
 
 /// Invalid source geometry or unusable view extent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

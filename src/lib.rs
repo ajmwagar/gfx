@@ -8,51 +8,51 @@
 //! The initial primitive set is intentionally small. It is designed for dense,
 //! animated control surfaces without becoming an application framework.
 
-pub mod attention;
-pub mod code;
-pub mod laser;
-pub mod chrome;
-pub mod panels;
-pub mod plot;
-pub mod geo;
-pub mod geo_map;
-#[cfg(feature = "wgpu")]
-pub mod map_tiles;
 pub mod analysis;
+pub mod attention;
 pub mod boids;
+pub mod chrome;
 mod clock;
+pub mod code;
 mod color;
 pub mod console;
 pub mod data_views;
 #[cfg(feature = "wgpu")]
 mod frame;
+pub mod geo;
+pub mod geo_map;
 mod geometry;
 #[cfg(feature = "wgpu")]
 mod globe;
+pub mod laser;
+#[cfg(feature = "wgpu")]
+pub mod map_tiles;
 pub mod media;
-pub mod video_matte;
-pub mod retained_video;
-pub mod retained_waterfall;
-pub mod view_appearance;
 pub mod mesh;
 #[cfg(feature = "wgpu")]
 mod mesh_renderer;
-#[cfg(feature = "skeletal")]
-pub mod skeletal;
 pub mod motion;
 mod orbit;
 mod orientation;
+pub mod panels;
 pub mod patchbay;
 mod path;
+pub mod plot;
 pub mod reactor;
 #[cfg(feature = "wgpu")]
 mod renderer;
+pub mod retained_video;
+pub mod retained_waterfall;
 mod scene;
 pub mod signals;
+#[cfg(feature = "skeletal")]
+pub mod skeletal;
 mod spatial;
 mod surface;
 mod theme;
 pub mod topology;
+pub mod video_matte;
+pub mod view_appearance;
 
 pub use clock::AnalogClock;
 pub use color::Color;
@@ -63,8 +63,8 @@ pub use frame::{
 pub use geometry::{Point, Rect, Size};
 #[cfg(feature = "wgpu")]
 pub use globe::{
-    GlobeFrame, GlobePoint, GlobeRenderError, GlobeRenderStats, GlobeRenderer, GlobeRendererConfig,
-    GlobeStyle,
+    GlobeFrame, GlobeLineSegment, GlobeMarkerKind, GlobeMarkerStyle, GlobePoint, GlobeRenderError,
+    GlobeRenderStats, GlobeRenderer, GlobeRendererConfig, GlobeStyle,
 };
 pub use orbit::{
     named_orientation, orientation_at, OrbitAction, OrbitController, OrbitLimits, OrbitPose,
@@ -81,8 +81,8 @@ pub use renderer::{
 };
 pub use scene::{Primitive, PrimitiveKind, Scene};
 pub use spatial::{
-    geodetic_to_ecef, relative_to_origin_f32, wgs84_ellipsoid_mesh, EllipsoidMesh, EllipsoidVertex,
-    SpatialError, WGS84_SEMI_MAJOR_M, WGS84_SEMI_MINOR_M,
+    geodetic_to_ecef, relative_to_origin_f32, wgs84_ellipsoid_mesh, wgs84_surface_patch,
+    EllipsoidMesh, EllipsoidVertex, SpatialError, WGS84_SEMI_MAJOR_M, WGS84_SEMI_MINOR_M,
 };
 pub use surface::{
     NativeSurfaceHandle, PixelFormat, SurfaceDescriptor, SurfaceError, SurfaceLease,

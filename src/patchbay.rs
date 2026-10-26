@@ -1,5 +1,5 @@
 //! Paired-jack annotations. Wiring, patch state and fonts belong to the host.
-use crate::{Primitive, Rect, Scene, ThemeRole, topology::Label};
+use crate::{topology::Label, Primitive, Rect, Scene, ThemeRole};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -183,10 +183,9 @@ mod tests {
             pairs: vec![pair.clone(), pair],
         };
         let mut scene = Scene::new();
-        assert!(
-            bay.append(&mut scene, Rect::new(0.0, 0.0, 200.0, 100.0))
-                .is_err()
-        );
+        assert!(bay
+            .append(&mut scene, Rect::new(0.0, 0.0, 200.0, 100.0))
+            .is_err());
         assert!(scene.is_empty());
     }
 }

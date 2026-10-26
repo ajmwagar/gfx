@@ -501,12 +501,12 @@ mod tests {
         let mut deck:TaskDeck=serde_json::from_value(serde_json::json!({"items":[
             {"id":"a","project":"Canvas","title":"Task A","meta":"neo","state":"active"},
             {"id":"b","project":"Bus","title":"Task B","meta":"neo","state":"input"}],"fresh":true})).unwrap();
-        for expected in ["a","b","a"] {
+        for expected in ["a", "b", "a"] {
             deck.navigate(TaskNavigation::Next).unwrap();
-            assert_eq!(deck.selected.as_deref(),Some(expected));
+            assert_eq!(deck.selected.as_deref(), Some(expected));
         }
         deck.navigate(TaskNavigation::Previous).unwrap();
-        assert_eq!(deck.selected.as_deref(),Some("b"));
+        assert_eq!(deck.selected.as_deref(), Some("b"));
     }
     #[test]
     fn navigation_tracks_identity_and_expands_without_authority() {
