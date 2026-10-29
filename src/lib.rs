@@ -88,6 +88,7 @@ pub use surface::{
     NativeSurfaceHandle, PixelFormat, SurfaceDescriptor, SurfaceError, SurfaceLease,
     SURFACE_DESCRIPTOR_VERSION,
 };
+pub use motion::Ease;
 pub use theme::{MaterialTheme, MotionTheme, ShapeTheme, Theme, ThemeError, ThemeRole};
 
 pub mod lovr;

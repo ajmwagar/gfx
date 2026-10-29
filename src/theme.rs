@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::motion::Ease;
 use crate::Color;
 
 /// Number of semantic color slots in the stable GPU theme contract.
@@ -86,6 +87,10 @@ pub struct MotionTheme {
     pub meter_decay: f32,
     /// Default parameter interpolation time in milliseconds.
     pub control_smoothing_ms: f32,
+    /// Easing curve host tweens built from these tokens default to.
+    pub ease: Ease,
+    /// Optional output grid (logical units) snapping animated values; `0` disables.
+    pub quantum: f32,
 }
 
 /// A complete semantic visual theme.
@@ -144,6 +149,8 @@ impl Theme {
             motion: MotionTheme {
                 meter_decay: 1.8,
                 control_smoothing_ms: 80.0,
+                ease: Ease::Cubic,
+                quantum: 0.0,
             },
         }
     }
@@ -179,6 +186,57 @@ impl Theme {
         theme.materials.grain = 0.0;
         theme.materials.emission = 0.12;
         theme
+    }
+
+    /// The Stark Industries JARVIS HUD chrome: arc-reactor cyan over warm gold,
+    /// set on a near-black navy field with a contained, high-emission glow.
+    ///
+    /// This is the canonical JARVIS / Stark-tech identity for any host that
+    /// wants it — Canvas widgets, the Viewer Spore, and independent hosts all
+    /// read the same semantic roles, so the look is applied by selection alone
+    /// and never duplicated per host. Like the other presets it is an opt-in
+    /// fallback; a host with its own live palette should still prefer its
+    /// Coherence adapter and only reach for this when it wants the JARVIS look
+    /// specifically.
+    pub fn jarvis_hud() -> Self {
+        let srgb = Color::from_srgb8;
+        Self {
+            schema_version: Self::SCHEMA_VERSION,
+            colors: [
+                srgb(5, 9, 15, 255),     // Background: deep navy-black field
+                srgb(14, 22, 32, 255),   // Surface: dark steel-cyan card
+                srgb(24, 36, 50, 255),   // SurfaceRaised: lighter steel panel
+                srgb(8, 13, 20, 255),    // SurfaceRecessed: deep display well
+                srgb(210, 235, 245, 255),// Text: pale arc-reactor cyan-white
+                srgb(120, 145, 168, 255),// TextMuted: steel blue-gray markings
+                srgb(60, 200, 255, 255), // Primary: arc-reactor cyan
+                srgb(255, 170, 55, 255), // Secondary: Stark gold / amber
+                srgb(80, 220, 185, 255), // Success: teal-cyan
+                srgb(255, 190, 70, 255), // Warning: amber
+                srgb(255, 95, 60, 255),  // Danger: hot amber-red
+                srgb(45, 150, 180, 255), // MeterLow: dim cyan
+                srgb(120, 225, 255, 255),// MeterHigh: bright cyan
+                srgb(55, 78, 100, 255),  // Outline: subtle steel hairline
+                srgb(2, 5, 9, 200),      // Shadow: deep navy cast shadow
+                srgb(200, 245, 255, 255),// Highlight: arc-reactor glow
+            ],
+            shapes: ShapeTheme {
+                radius_small: 2.5,
+                radius_large: 6.0,
+                outline_width: 1.0,
+            },
+            materials: MaterialTheme {
+                gloss: 0.30,
+                grain: 0.02,
+                emission: 0.55,
+            },
+            motion: MotionTheme {
+                meter_decay: 2.2,
+                control_smoothing_ms: 60.0,
+                ease: Ease::Cubic,
+                quantum: 0.0,
+            },
+        }
     }
 
     /// Atomically accepts a complete host-owned palette/token snapshot.
@@ -228,6 +286,7 @@ impl Theme {
             self.materials.emission,
             self.motion.meter_decay,
             self.motion.control_smoothing_ms,
+            self.motion.quantum,
         ]
         .into_iter()
         .all(finite_nonnegative)
@@ -277,6 +336,26 @@ mod tests {
             theme.color(ThemeRole::Background).to_srgb8(),
             [20, 28, 24, 255]
         );
+        assert_eq!(
+            serde_json::from_str::<Theme>(&serde_json::to_string(&theme).unwrap()).unwrap(),
+            theme
+        );
+    }
+
+    #[test]
+    fn jarvis_hud_is_flat_valid_and_round_trips() {
+        let theme = Theme::jarvis_hud();
+        theme.validate().unwrap();
+        // Arc-reactor cyan primary and Stark gold secondary are the signature.
+        assert_eq!(
+            theme.color(ThemeRole::Primary).to_srgb8(),
+            [60, 200, 255, 255]
+        );
+        assert_eq!(
+            theme.color(ThemeRole::Secondary).to_srgb8(),
+            [255, 170, 55, 255]
+        );
+        assert!(theme.materials.emission > 0.5);
         assert_eq!(
             serde_json::from_str::<Theme>(&serde_json::to_string(&theme).unwrap()).unwrap(),
             theme
