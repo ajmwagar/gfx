@@ -45,6 +45,7 @@ pub mod retained_video;
 pub mod retained_waterfall;
 mod scene;
 pub mod signals;
+pub mod software;
 #[cfg(feature = "skeletal")]
 pub mod skeletal;
 mod spatial;
@@ -56,6 +57,7 @@ pub mod view_appearance;
 
 pub use clock::AnalogClock;
 pub use color::Color;
+pub use software::{Image as SoftwareImage, RasterError as SoftwareRasterError};
 #[cfg(feature = "wgpu")]
 pub use frame::{
     FramePresentation, FramePresentationError, FramePresenter, FramePresenterConfig, FrameTexture,
