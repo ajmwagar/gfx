@@ -181,6 +181,48 @@ impl Theme {
         theme
     }
 
+    /// Canonical preset ported from fpl/gfx/src/theme.rs; legacy MotionTheme
+    /// lacks ease/quantum fields, which are irrelevant to this static demo.
+    pub fn jarvis_hud() -> Self {
+        let srgb = Color::from_srgb8;
+        Self {
+            schema_version: Self::SCHEMA_VERSION,
+            colors: [
+                srgb(5, 9, 15, 255),     // Background: deep navy-black field
+                srgb(14, 22, 32, 255),   // Surface: dark steel-cyan card
+                srgb(24, 36, 50, 255),   // SurfaceRaised: lighter steel panel
+                srgb(8, 13, 20, 255),    // SurfaceRecessed: deep display well
+                srgb(210, 235, 245, 255),// Text: pale arc-reactor cyan-white
+                srgb(120, 145, 168, 255),// TextMuted: steel blue-gray markings
+                srgb(60, 200, 255, 255), // Primary: arc-reactor cyan
+                srgb(255, 170, 55, 255), // Secondary: Stark gold / amber
+                srgb(80, 220, 185, 255), // Success: teal-cyan
+                srgb(255, 190, 70, 255), // Warning: amber
+                srgb(255, 95, 60, 255),  // Danger: hot amber-red
+                srgb(45, 150, 180, 255), // MeterLow: dim cyan
+                srgb(120, 225, 255, 255),// MeterHigh: bright cyan
+                srgb(55, 78, 100, 255),  // Outline: subtle steel hairline
+                srgb(2, 5, 9, 200),      // Shadow: deep navy cast shadow
+                srgb(200, 245, 255, 255),// Highlight: arc-reactor glow
+            ],
+            shapes: ShapeTheme {
+                radius_small: 2.5,
+                radius_large: 6.0,
+                outline_width: 1.0,
+            },
+            materials: MaterialTheme {
+                gloss: 0.30,
+                grain: 0.02,
+                emission: 0.55,
+            },
+            motion: MotionTheme {
+                meter_decay: 2.2,
+                control_smoothing_ms: 60.0,
+            },
+        }
+    }
+
+
     /// Atomically accepts a complete host-owned palette/token snapshot.
     ///
     /// Hosts retain one theme for their views and call this on appearance
@@ -266,6 +308,14 @@ pub enum ThemeError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn jarvis_canonical_palette_validates_and_round_trips() {
+        let theme = Theme::jarvis_hud();
+        theme.validate().unwrap();
+        assert_eq!(theme.color(ThemeRole::Primary).to_srgb8(), [60,200,255,255]);
+        assert_eq!(serde_json::from_str::<Theme>(&serde_json::to_string(&theme).unwrap()).unwrap(), theme);
+    }
 
     #[test]
     fn undergrowth_is_flat_valid_and_round_trips() {

@@ -44,10 +44,11 @@ mod renderer;
 pub mod retained_video;
 pub mod retained_waterfall;
 mod scene;
+pub mod status_widgets;
 pub mod signals;
-pub mod software;
 #[cfg(feature = "skeletal")]
 pub mod skeletal;
+pub mod software;
 mod spatial;
 mod surface;
 mod theme;
@@ -57,7 +58,6 @@ pub mod view_appearance;
 
 pub use clock::AnalogClock;
 pub use color::Color;
-pub use software::{Image as SoftwareImage, RasterError as SoftwareRasterError};
 #[cfg(feature = "wgpu")]
 pub use frame::{
     FramePresentation, FramePresentationError, FramePresenter, FramePresenterConfig, FrameTexture,
@@ -82,6 +82,7 @@ pub use renderer::{
     RenderContext, RenderError, RenderOptions, Renderer, RendererConfig, RendererStats, Viewport,
 };
 pub use scene::{Primitive, PrimitiveKind, Scene};
+pub use software::{Image as SoftwareImage, RasterError as SoftwareRasterError};
 pub use spatial::{
     geodetic_to_ecef, relative_to_origin_f32, wgs84_ellipsoid_mesh, wgs84_surface_patch,
     EllipsoidMesh, EllipsoidVertex, SpatialError, WGS84_SEMI_MAJOR_M, WGS84_SEMI_MINOR_M,
